@@ -2,21 +2,21 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import plotly.graph_objects as go
 
-# ================= CONFIG =================
-st.set_page_config(page_title="Level X Trading Dashboard", layout="wide")
-st.title("📊 Level X – Stock Trading Dashboard")
+st.set_page_config(page_title="Level X++ Auto Scan", layout="wide")
+st.title("🚀 Level X++ – AUTO SCAN CỔ PHIẾU")
 
-# ================= STOCK LIST (DEMO) =================
-VN_STOCKS = {
-    "HOSE": ["VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "VIC.VN"],
-    "HNX": ["SHS.VN", "PVS.VN", "IDC.VN"]
-}
+# =====================
+# DANH SÁCH MÃ (DEMO)
+# =====================
+VN_STOCKS = [
+    "VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "VIC.VN",
+    "SSI.VN", "VCB.VN", "CTG.VN", "ACB.VN", "BID.VN"
+]
 
-ALL_SYMBOLS = VN_STOCKS["HOSE"] + VN_STOCKS["HNX"]
-
-# ================= DATA LOADER =================
+# =====================
+# LOAD DATA
+# =====================
 @st.cache_data
 def load_data(symbol):
     df = yf.download(symbol, period="6mo", interval="1d", progress=False)
@@ -29,11 +29,13 @@ def load_data(symbol):
 
     df = df[["Open", "High", "Low", "Close", "Volume"]]
     df.dropna(inplace=True)
-
     return df
 
-# ================= INDICATORS =================
-def add_indicators(df):
+
+# =====================
+# CALCULATE INDICATORS
+# =====================
+def calculate_indicators(df):
     df["MA20"] = df["Close"].rolling(20).mean()
     df["MA50"] = df["Close"].rolling(50).mean()
 
@@ -43,92 +45,84 @@ def add_indicators(df):
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
+    df["VOL_MA20"] = df["Volume"].rolling(20).mean()
     return df
 
-# ================= TABS =================
-tab1, tab2 = st.tabs(["🔍 Phân tích 1 mã", "🤖 AUTO SCAN (Level X++)"])
 
-# =====================================================
-# TAB 1 – PHÂN TÍCH 1 MÃ
-# =====================================================
-with tab1:
-    symbol = st.text_input(
-        "Nhập mã cổ phiếu (VD: VNM.VN, HPG.VN, FPT.VN)",
-        "VNM.VN"
-    )
+# =====================
+# SCORING SYSTEM
+# =====================
+def score_stock(df):
+    latest = df.iloc[-1]
+    prev = df.iloc[-2]
 
-    df = load_data(symbol)
+    score = 0
 
-    if df.empty or len(df) < 50:
-        st.error("❌ Không lấy được dữ liệu hoặc dữ liệu không đủ.")
-        st.stop()
+    if latest["Close"] > latest["MA20"] > latest["MA50"]:
+        score += 3
 
-    df = add_indicators(df)
+    if 40 <= latest["RSI"] <= 65:
+        score += 2
+    elif latest["RSI"] < 30:
+        score += 1
 
-    # ===== CHART =====
-    fig = go.Figure()
-    fig.add_candlestick(
-        x=df.index,
-        open=df["Open"],
-        high=df["High"],
-        low=df["Low"],
-        close=df["Close"],
-        name="Price"
-    )
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA20"], name="MA20"))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA50"], name="MA50"))
+    if prev["Close"] < prev["MA20"] and latest["Close"] > latest["MA20"]:
+        score += 1
 
-    fig.update_layout(height=600)
-    st.plotly_chart(fig, use_container_width=True)
+    if latest["Volume"] > latest["VOL_MA20"]:
+        score += 2
 
-    # ===== QUICK ANALYSIS =====
-    st.subheader("📌 Phân tích nhanh")
+    return score
 
-    last_close = float(df["Close"].iloc[-1])
-    ma20 = float(df["MA20"].iloc[-1])
-    ma50 = float(df["MA50"].iloc[-1])
-    rsi = float(df["RSI"].iloc[-1])
 
-    if last_close > ma20 > ma50 and rsi < 70:
-        st.success("✅ TÍN HIỆU: MUA – Xu hướng tăng khỏe")
-    elif rsi >= 70:
-        st.warning("⚠️ QUÁ MUA – Dễ điều chỉnh")
+def rating(score):
+    if score >= 7:
+        return "🔥 STRONG BUY"
+    elif score >= 5:
+        return "✅ BUY"
+    elif score >= 3:
+        return "👀 WATCH"
     else:
-        st.info("⏳ CHƯA RÕ – Nên quan sát")
+        return "❌ SKIP"
 
-    st.write(f"RSI: {round(rsi, 2)}")
 
-# =====================================================
-# TAB 2 – AUTO SCAN (LEVEL X++)
-# =====================================================
-with tab2:
-    st.subheader("🤖 AUTO SCAN – Tìm cổ phiếu tiềm năng")
+# =====================
+# AUTO SCAN
+# =====================
+st.subheader("📡 AUTO SCAN – LEVEL X++")
 
-    results = []
+results = []
 
-    with st.spinner("⏳ Đang quét thị trường..."):
-        for sym in ALL_SYMBOLS:
-            df = load_data(sym)
-            if df.empty or len(df) < 50:
-                continue
+with st.spinner("Đang quét thị trường..."):
+    for symbol in VN_STOCKS:
+        df = load_data(symbol)
 
-            df = add_indicators(df)
+        if df.empty or len(df) < 50:
+            continue
 
-            last = df.iloc[-1]
+        df = calculate_indicators(df)
+        score = score_stock(df)
 
-            trend = "TĂNG" if last["Close"] > last["MA20"] > last["MA50"] else "KHÔNG RÕ"
-            recommendation = "MUA" if trend == "TĂNG" and last["RSI"] < 70 else "THEO DÕI"
+        results.append({
+            "Mã": symbol,
+            "Giá hiện tại": round(df["Close"].iloc[-1], 2),
+            "RSI": round(df["RSI"].iloc[-1], 2),
+            "Xu hướng": "Tăng" if df["Close"].iloc[-1] > df["MA20"].iloc[-1] else "Giảm",
+            "Điểm": score,
+            "Khuyến nghị": rating(score)
+        })
 
-            results.append({
-                "Mã": sym,
-                "Giá hiện tại": round(last["Close"], 2),
-                "RSI": round(last["RSI"], 2),
-                "Xu hướng": trend,
-                "Khuyến nghị": recommendation
-            })
+# =====================
+# RESULT TABLE
+# =====================
+if results:
+    result_df = pd.DataFrame(results)
+    result_df = result_df.sort_values("Điểm", ascending=False)
 
-    if results:
-        df_result = pd.DataFrame(results)
-        st.dataframe(df_result, use_container_width=True)
-    else:
-        st.warning("⚠️ Không tìm được mã phù hợp.")
+    st.dataframe(
+        result_df,
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.warning("Không quét được mã nào.")
