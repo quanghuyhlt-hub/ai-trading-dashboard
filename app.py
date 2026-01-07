@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Level X Trading Dashboard", layout="wide")
 st.title("📊 Level X – Stock Trading Dashboard")
+tab1, tab2 = st.tabs(["🔍 Phân tích 1 mã", "🧠 AUTO SCAN"])
 
 # ================= LOAD DATA =================
 @st.cache_data
@@ -20,6 +21,8 @@ def load_data(symbol):
 
     return df
 
+with tab1:
+    # toàn bộ code cũ, THỤT VÀO 4 SPACE
 
 # ================= INPUT =================
 symbol = st.text_input(
@@ -98,3 +101,50 @@ else:
 
 st.write(f"RSI: {round(rsi, 2)}")
 st.write(f"MACD: {round(macd, 2)}")
+with tab2:
+    st.subheader("🧠 AUTO SCAN – Tìm cổ phiếu khỏe")
+
+    VN_STOCKS = [
+        "VNM.VN", "HPG.VN", "FPT.VN",
+        "MWG.VN", "VIC.VN", "SSI.VN"
+    ]
+
+    results = []
+
+    for sym in VN_STOCKS:
+        df_scan = load_data(sym)
+        if df_scan.empty or len(df_scan) < 50:
+            continue
+
+        df_scan["MA20"] = df_scan["Close"].rolling(20).mean()
+        df_scan["MA50"] = df_scan["Close"].rolling(50).mean()
+
+        delta = df_scan["Close"].diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = -delta.where(delta < 0, 0).rolling(14).mean()
+        rs = gain / loss
+        df_scan["RSI"] = 100 - (100 / (1 + rs))
+
+        last = df_scan.iloc[-1]
+
+        score = 0
+        if last["Close"] > last["MA20"]:
+            score += 25
+        if last["MA20"] > last["MA50"]:
+            score += 25
+        if last["RSI"] < 70:
+            score += 25
+
+        if score >= 50:
+            results.append({
+                "Mã": sym,
+                "Giá": round(last["Close"], 2),
+                "RSI": round(last["RSI"], 1),
+                "Score": score,
+                "Khuyến nghị": "MUA" if score >= 75 else "THEO DÕI"
+            })
+
+    if results:
+        st.dataframe(pd.DataFrame(results), use_container_width=True)
+    else:
+        st.info("Không có mã nào đạt điều kiện hôm nay.")
