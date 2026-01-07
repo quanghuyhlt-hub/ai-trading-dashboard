@@ -69,7 +69,19 @@ with tab1:
     df = add_indicators(df)
 
     latest = df.iloc[-1][["MA20", "MA50", "RSI", "VOL_RATIO"]].values.reshape(1, -1)
-    prob = model.predict_proba(latest)[0][1] * 100
+    score = 0
+
+if last_close > ma20:
+    score += 25
+if ma20 > ma50:
+    score += 25
+if rsi < 70:
+    score += 25
+if macd > 0:
+    score += 25
+
+prob = score  # % xác suất theo kỹ thuật
+
 
     fig = go.Figure()
     fig.add_candlestick(
