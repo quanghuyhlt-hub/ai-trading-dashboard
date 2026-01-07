@@ -5,8 +5,52 @@ import yfinance as yf
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Level X Trading Dashboard", layout="wide")
-st.title("📊 Level X – Stock Trading Dashboard")
+st.title("📊 Level X – Stock Trading Dashboard")tab1 with tab1:
+    # (giữ nguyên toàn bộ code phân tích 1 mã hiện tại)
+, tab2 = st.tabs(["📊 Phân tích chi tiết", "🤖 Auto Scan"])with tab2:
+    st.subheader("🤖 Auto Scan – Tín hiệu MUA")
 
+    market = st.selectbox("Chọn sàn", ["HOSE", "HNX"])
+    symbols = VN_STOCKS[market]
+
+    results = []
+
+    for sym in symbols:
+        df_scan = load_data(sym)
+        if df_scan.empty or len(df_scan) < 50:
+            continue
+
+        # Indicator
+        df_scan["MA20"] = df_scan["Close"].rolling(20).mean()
+        df_scan["MA50"] = df_scan["Close"].rolling(50).mean()
+
+        delta = df_scan["Close"].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss
+        df_scan["RSI"] = 100 - (100 / (1 + rs))
+
+        df_scan.dropna(inplace=True)
+        last = df_scan.iloc[-1]
+
+        if last["Close"] > last["MA20"] > last["MA50"] and last["RSI"] < 70:
+            results.append({
+                "Mã": sym,
+                "Giá": round(last["Close"], 2),
+                "RSI": round(last["RSI"], 2),
+                "Xu hướng": "Tăng",
+                "Khuyến nghị": "MUA"
+            })
+
+    if results:
+        st.dataframe(pd.DataFrame(results))
+    else:
+        st.info("Chưa có mã nào thỏa điều kiện hôm nay.")
+
+VN_STOCKS = {
+    "HOSE": ["VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "VIC.VN"],
+    "HNX": ["SHS.VN", "PVS.VN", "IDC.VN"]
+}
 @st.cache_data
 def load_data(symbol):
     df = yf.download(symbol, period="6mo", interval="1d", progress=False)
