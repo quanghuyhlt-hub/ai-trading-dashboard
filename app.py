@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
-from sklearn.linear_model import LogisticRegression
 
 st.set_page_config(page_title="Level X Trading Dashboard", layout="wide")
 st.title("📊 Level X – Trading Dashboard")
