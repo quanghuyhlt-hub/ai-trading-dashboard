@@ -44,7 +44,6 @@ ema26 = df["Close"].ewm(span=26, adjust=False).mean()
 df["MACD"] = ema12 - ema26
 df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-df.dropna(inplace=True)
 
 # ===== CHART =====
 fig = go.Figure()
@@ -63,16 +62,21 @@ fig.update_layout(height=600)
 st.plotly_chart(fig, use_container_width=True)
 
 # ===== SIGNAL =====
-latest = df.iloc[-1]
-
 st.subheader("📌 Phân tích nhanh")
 
-if latest["Close"] > latest["MA20"] > latest["MA50"] and latest["RSI"] < 70:
+latest = df.dropna().iloc[-1]
+
+if (
+    latest["Close"] > latest["MA20"]
+    and latest["MA20"] > latest["MA50"]
+    and latest["RSI"] < 70
+):
     st.success("✅ TÍN HIỆU: MUA – Xu hướng tăng khỏe")
-elif latest["RSI"] > 70:
+elif latest["RSI"] >= 70:
     st.warning("⚠️ QUÁ MUA – Dễ điều chỉnh")
 else:
     st.info("⏳ CHƯA RÕ – Nên quan sát")
 
-st.write(f"RSI: {latest['RSI']:.2f}")
-st.write(f"MACD: {latest['MACD']:.2f}")
+st.write(f"RSI: {round(latest['RSI'], 2)}")
+st.write(f"MACD: {round(latest['MACD'], 2)}")
+
