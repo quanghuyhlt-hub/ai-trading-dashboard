@@ -2,132 +2,77 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import matplotlib.pyplot as plt
-import ta
+import plotly.graph_objects as go
 
-# ======================
-# CONFIG
-# ======================
-st.set_page_config(
-    page_title="AI Trading Dashboard",
-    layout="wide"
-)
+st.set_page_config(page_title="Level X Trading Dashboard", layout="wide")
+st.title("📊 Level X – Stock Trading Dashboard")
 
-st.title("📈 AI Trading Dashboard – Level X")
-
-# ======================
-# SIDEBAR
-# ======================
-st.sidebar.header("⚙️ Cấu hình")
-
-symbol = st.sidebar.text_input(
-    "Mã cổ phiếu (VD: VNM, FPT, HPG)",
-    value="VNM"
-)
-
-period = st.sidebar.selectbox(
-    "Dữ liệu",
-    ["6mo", "1y", "2y", "5y"],
-    index=1
-)
-
-interval = st.sidebar.selectbox(
-    "Khung thời gian",
-    ["1d", "1wk"],
-    index=0
-)
-
-# ======================
-# LOAD DATA
-# ======================
 @st.cache_data
-def load_data(symbol, period, interval):
-    df = yf.download(symbol, period=period, interval=interval)
+def load_data(symbol):
+    df = yf.download(symbol, period="6mo", interval="1d", progress=False)
     df.dropna(inplace=True)
     return df
 
-df = load_data(symbol, period, interval)
+symbol = st.text_input(
+    "Nhập mã cổ phiếu (VD: VNM.VN, HPG.VN, FPT.VN)",
+    "VNM.VN"
+)
 
-if df.empty:
-    st.error("❌ Không tải được dữ liệu. Kiểm tra lại mã cổ phiếu.")
+df = load_data(symbol)
+
+# 🚨 CHẶN LỖI TUYỆT ĐỐI
+if df.empty or len(df) < 50:
+    st.error("❌ Không lấy được dữ liệu hoặc dữ liệu không đủ.")
     st.stop()
 
-# ======================
-# INDICATORS
-# ======================
-df["MA20"] = ta.trend.sma_indicator(df["Close"], window=20)
-df["MA50"] = ta.trend.sma_indicator(df["Close"], window=50)
-df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
+# ===== INDICATORS (TỰ TÍNH – KHÔNG TA) =====
 
-# ======================
-# TABS
-# ======================
-tab1, tab2 = st.tabs(["📊 Biểu đồ", "⚡ Phân tích nhanh"])
+# MA
+df["MA20"] = df["Close"].rolling(20).mean()
+df["MA50"] = df["Close"].rolling(50).mean()
 
-# ======================
-# TAB 1 – CHART
-# ======================
-with tab1:
-    st.subheader("📊 Biểu đồ giá & MA")
+# RSI
+delta = df["Close"].diff()
+gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+rs = gain / loss
+df["RSI"] = 100 - (100 / (1 + rs))
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(df.index, df["Close"], label="Close", linewidth=2)
-    ax.plot(df.index, df["MA20"], label="MA20")
-    ax.plot(df.index, df["MA50"], label="MA50")
-    ax.legend()
-    ax.grid(True)
+# MACD
+ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+df["MACD"] = ema12 - ema26
+df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    st.pyplot(fig)
+df.dropna(inplace=True)
 
-# ======================
-# TAB 2 – PHÂN TÍCH NHANH (ĐÃ FIX)
-# ======================
-with tab2:
-    st.subheader("⚡ Phân tích nhanh")
+# ===== CHART =====
+fig = go.Figure()
+fig.add_candlestick(
+    x=df.index,
+    open=df["Open"],
+    high=df["High"],
+    low=df["Low"],
+    close=df["Close"],
+    name="Price"
+)
+fig.add_trace(go.Scatter(x=df.index, y=df["MA20"], name="MA20"))
+fig.add_trace(go.Scatter(x=df.index, y=df["MA50"], name="MA50"))
 
-    # ---- LẤY GIÁ TRỊ CUỐI (FIX LỖI SERIES) ----
-    latest_close = float(df["Close"].iloc[-1])
-    ma20 = float(df["MA20"].iloc[-1])
-    ma50 = float(df["MA50"].iloc[-1])
-    rsi = float(df["RSI"].iloc[-1])
+fig.update_layout(height=600)
+st.plotly_chart(fig, use_container_width=True)
 
-    col1, col2, col3, col4 = st.columns(4)
+# ===== SIGNAL =====
+latest = df.iloc[-1]
 
-    col1.metric("Giá hiện tại", f"{latest_close:,.2f}")
-    col2.metric("MA20", f"{ma20:,.2f}")
-    col3.metric("MA50", f"{ma50:,.2f}")
-    col4.metric("RSI", f"{rsi:.1f}")
+st.subheader("📌 Phân tích nhanh")
 
-    # ---- XU HƯỚNG ----
-    if latest_close > ma20 and ma20 > ma50:
-        st.success("📈 Xu hướng TĂNG – Ưu tiên MUA")
-    elif latest_close < ma20 and ma20 < ma50:
-        st.error("📉 Xu hướng GIẢM – Tránh vào lệnh")
-    else:
-        st.warning("⚠️ SIDEWAYS – Quan sát thêm")
+if latest["Close"] > latest["MA20"] > latest["MA50"] and latest["RSI"] < 70:
+    st.success("✅ TÍN HIỆU: MUA – Xu hướng tăng khỏe")
+elif latest["RSI"] > 70:
+    st.warning("⚠️ QUÁ MUA – Dễ điều chỉnh")
+else:
+    st.info("⏳ CHƯA RÕ – Nên quan sát")
 
-    # ---- RSI ----
-    if rsi > 70:
-        st.warning("⚠️ RSI cao – Có thể quá mua")
-    elif rsi < 30:
-        st.success("✅ RSI thấp – Có thể quá bán")
-    else:
-        st.info("ℹ️ RSI trung tính")
-
-    # ---- GỢI Ý GIAO DỊCH (CƠ BẢN) ----
-    st.divider()
-    st.markdown("### 🎯 Gợi ý giao dịch (tham khảo)")
-
-    swing_low = float(df["Low"].tail(30).min())
-    swing_high = float(df["High"].tail(30).max())
-
-    tp1 = latest_close + (swing_high - swing_low) * 0.382
-    tp2 = latest_close + (swing_high - swing_low) * 0.618
-    sl = swing_low
-
-    st.write(f"🟢 **Entry**: {latest_close:,.2f}")
-    st.write(f"🎯 **TP1 (Fib 0.382)**: {tp1:,.2f}")
-    st.write(f"🎯 **TP2 (Fib 0.618)**: {tp2:,.2f}")
-    st.write(f"🔴 **Stop Loss**: {sl:,.2f}")
-
-    st.caption("⚠️ Chỉ mang tính hỗ trợ quyết định, không phải khuyến nghị đầu tư.")
+st.write(f"RSI: {latest['RSI']:.2f}")
+st.write(f"MACD: {latest['MACD']:.2f}")
