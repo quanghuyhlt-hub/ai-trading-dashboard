@@ -10,7 +10,14 @@ st.title("📊 Level X – Stock Trading Dashboard")
 @st.cache_data
 def load_data(symbol):
     df = yf.download(symbol, period="6mo", interval="1d", progress=False)
+
+    # 🔥 FIX: flatten multi-index columns nếu có
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    df = df[["Open", "High", "Low", "Close", "Volume"]]
     df.dropna(inplace=True)
+
     return df
 
 symbol = st.text_input(
@@ -64,19 +71,19 @@ st.plotly_chart(fig, use_container_width=True)
 # ===== SIGNAL =====
 st.subheader("📌 Phân tích nhanh")
 
-latest = df.dropna().iloc[-1]
+last_close = float(df["Close"].iloc[-1])
+ma20 = float(df["MA20"].iloc[-1])
+ma50 = float(df["MA50"].iloc[-1])
+rsi = float(df["RSI"].iloc[-1])
+macd = float(df["MACD"].iloc[-1])
 
-if (
-    latest["Close"] > latest["MA20"]
-    and latest["MA20"] > latest["MA50"]
-    and latest["RSI"] < 70
-):
+if last_close > ma20 > ma50 and rsi < 70:
     st.success("✅ TÍN HIỆU: MUA – Xu hướng tăng khỏe")
-elif latest["RSI"] >= 70:
+elif rsi >= 70:
     st.warning("⚠️ QUÁ MUA – Dễ điều chỉnh")
 else:
     st.info("⏳ CHƯA RÕ – Nên quan sát")
 
-st.write(f"RSI: {round(latest['RSI'], 2)}")
-st.write(f"MACD: {round(latest['MACD'], 2)}")
+st.write(f"RSI: {round(rsi, 2)}")
+st.write(f"MACD: {round(macd, 2)}")
 
