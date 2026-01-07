@@ -34,18 +34,6 @@ def add_indicators(df):
     df.dropna(inplace=True)
     return df
 
-# ================== AI MODEL ==================
-def train_ai(df):
-    df["FUTURE_RETURN"] = df["Close"].shift(-10) / df["Close"] - 1
-    df["TARGET"] = (df["FUTURE_RETURN"] > 0.05).astype(int)
-
-    features = ["MA20", "MA50", "RSI", "VOL_RATIO"]
-    X = df[features]
-    y = df["TARGET"]
-
-    model = LogisticRegression()
-    model.fit(X, y)
-    return model
 
 # ================== SESSION ==================
 if "selected_symbol" not in st.session_state:
@@ -80,7 +68,6 @@ with tab1:
     df = load_data(symbol)
     df = add_indicators(df)
 
-    model = train_ai(df)
     latest = df.iloc[-1][["MA20", "MA50", "RSI", "VOL_RATIO"]].values.reshape(1, -1)
     prob = model.predict_proba(latest)[0][1] * 100
 
