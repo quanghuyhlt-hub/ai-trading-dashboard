@@ -3,118 +3,103 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
+import ta
 
-# =====================
-# CONFIG
-# =====================
-st.set_page_config(
-    page_title="AI Trading Dashboard",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Trading Dashboard", layout="wide")
 
 st.title("📈 AI Trading Dashboard – Level X")
-st.caption("Phân tích kỹ thuật cơ bản | Demo học thuật – không phải khuyến nghị đầu tư")
 
-# =====================
-# SIDEBAR
-# =====================
-st.sidebar.header("⚙️ Cấu hình")
+# ======================
+# Sidebar
+# ======================
+symbol = st.sidebar.text_input("Nhập mã cổ phiếu (HOSE / HNX)", "VNM")
+period = st.sidebar.selectbox("Khung thời gian", ["6mo", "1y", "2y", "5y"])
+interval = st.sidebar.selectbox("Độ phân giải", ["1d", "1wk"])
 
-symbol = st.sidebar.text_input("Mã cổ phiếu / Index", "VNINDEX")
-period = st.sidebar.selectbox(
-    "Khoảng thời gian",
-    ["3mo", "6mo", "1y", "2y", "5y"],
-    index=2
-)
-
-# =====================
-# LOAD DATA
-# =====================
+# ======================
+# Load data
+# ======================
 @st.cache_data
-def load_data(symbol, period):
-    df = yf.download(symbol, period=period)
+def load_data(symbol, period, interval):
+    df = yf.download(symbol, period=period, interval=interval)
     df.dropna(inplace=True)
     return df
 
-df = load_data(symbol, period)
+df = load_data(symbol, period, interval)
 
 if df.empty:
-    st.error("❌ Không tải được dữ liệu. Kiểm tra lại mã.")
+    st.error("❌ Không tải được dữ liệu")
     st.stop()
 
-# =====================
-# INDICATORS
-# =====================
-df["MA20"] = df["Close"].rolling(20).mean()
-df["MA50"] = df["Close"].rolling(50).mean()
+# ======================
+# Indicators
+# ======================
+df["MA20"] = ta.trend.sma_indicator(df["Close"], window=20)
+df["MA50"] = ta.trend.sma_indicator(df["Close"], window=50)
+df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
 
-# RSI
-delta = df["Close"].diff()
-gain = delta.clip(lower=0)
-loss = -delta.clip(upper=0)
+# ======================
+# Chart
+# ======================
+st.subheader("📊 Biểu đồ giá")
 
-avg_gain = gain.rolling(14).mean()
-avg_loss = loss.rolling(14).mean()
-rs = avg_gain / avg_loss
-df["RSI"] = 100 - (100 / (1 + rs))
+fig, ax = plt.subplots(figsize=(12, 5))
+ax.plot(df.index, df["Close"], label="Close", linewidth=2)
+ax.plot(df.index, df["MA20"], label="MA20")
+ax.plot(df.index, df["MA50"], label="MA50")
+ax.legend()
+ax.grid(True)
 
-# =====================
-# LAYOUT
-# =====================
-col1, col2 = st.columns([2, 1])
+st.pyplot(fig)
 
-# =====================
-# PRICE CHART
-# =====================
-with col1:
-    st.subheader("📊 Biểu đồ giá")
+# ======================
+# PHÂN TÍCH NHANH (ĐÃ FIX LỖI)
+# ======================
+latest_close = float(df["Close"].iloc[-1])
+ma20 = float(df["MA20"].iloc[-1])
+ma50 = float(df["MA50"].iloc[-1])
+rsi = float(df["RSI"].iloc[-1])
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(df.index, df["Close"], label="Close")
-    ax.plot(df.index, df["MA20"], label="MA20")
-    ax.plot(df.index, df["MA50"], label="MA50")
-    ax.legend()
-    ax.grid(True)
+st.subheader("⚡ Phân tích nhanh")
 
-    st.pyplot(fig)
+col1, col2, col3, col4 = st.columns(4)
 
-# =====================
-# QUICK ANALYSIS (FIX LỖI 100%)
-# =====================
-with col2:
-    st.subheader("⚡ Phân tích nhanh")
+col1.metric("Giá hiện tại", f"{latest_close:,.2f}")
+col2.metric("MA20", f"{ma20:,.2f}")
+col3.metric("MA50", f"{ma50:,.2f}")
+col4.metric("RSI", f"{rsi:.1f}")
 
-    latest_close = float(df["Close"].iloc[-1])
-    ma20 = float(df["MA20"].iloc[-1])
-    ma50 = float(df["MA50"].iloc[-1])
-    rsi = float(df["RSI"].iloc[-1])
+# Xu hướng
+if latest_close > ma20 and ma20 > ma50:
+    st.success("📈 Xu hướng: TĂNG – Ưu tiên MUA")
+elif latest_close < ma20 and ma20 < ma50:
+    st.error("📉 Xu hướng: GIẢM – Không nên vào lệnh")
+else:
+    st.warning("⚠️ Xu hướng: SIDEWAYS – Quan sát")
 
-    st.metric("Giá hiện tại", f"{latest_close:,.2f}")
+# RSI cảnh báo
+if rsi > 70:
+    st.warning("⚠️ RSI cao – Có thể quá mua")
+elif rsi < 30:
+    st.success("✅ RSI thấp – Có thể quá bán")
+else:
+    st.info("ℹ️ RSI trung tính")
 
-    # Trend
-    if latest_close > ma20 > ma50:
-        st.success("📈 Xu hướng: TĂNG")
-    elif latest_close < ma20 < ma50:
-        st.error("📉 Xu hướng: GIẢM")
-    else:
-        st.warning("⚠️ Xu hướng: SIDEWAYS")
+# ======================
+# GỢI Ý GIAO DỊCH (CƠ BẢN)
+# ======================
+st.subheader("🎯 Gợi ý giao dịch (tham khảo)")
 
-    # RSI
-    if rsi > 70:
-        st.warning(f"RSI {rsi:.1f} – Quá mua")
-    elif rsi < 30:
-        st.success(f"RSI {rsi:.1f} – Quá bán")
-    else:
-        st.info(f"RSI {rsi:.1f} – Trung tính")
+swing_low = df["Low"].tail(30).min()
+swing_high = df["High"].tail(30).max()
 
-# =====================
-# RAW DATA
-# =====================
-with st.expander("📄 Xem dữ liệu thô"):
-    st.dataframe(df.tail(20))
+tp1 = latest_close + (swing_high - swing_low) * 0.382
+tp2 = latest_close + (swing_high - swing_low) * 0.618
+sl = swing_low
 
-# =====================
-# FOOTER
-# =====================
-st.markdown("---")
-st.caption("Built with Streamlit | Demo AI Trading Dashboard")
+st.write(f"🟢 **Điểm vào tham khảo**: {latest_close:,.2f}")
+st.write(f"🎯 **Chốt lời 1 (TP1 – Fib 0.382)**: {tp1:,.2f}")
+st.write(f"🎯 **Chốt lời 2 (TP2 – Fib 0.618)**: {tp2:,.2f}")
+st.write(f"🔴 **Cắt lỗ (SL)**: {sl:,.2f}")
+
+st.caption("⚠️ Chỉ mang tính hỗ trợ quyết định, không phải khuyến nghị đầu tư.")
