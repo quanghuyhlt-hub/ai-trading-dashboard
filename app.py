@@ -184,4 +184,3 @@ with tab2:
         st.success("👉 Ưu tiên soi các mã 🚀 SIÊU CỔ trong Tab 1")
     else:
         st.info("Hôm nay chưa có siêu cổ đúng chuẩn.")
-cổ phiếu đủ chuẩn.")
