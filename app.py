@@ -10,6 +10,26 @@ st.title("📊 Level X – Trading Dashboard")
 # ================== DATA ==================
 @st.cache_data
 def load_data(symbol):
+    def add_indicators(df):
+    df = df.copy()
+
+    df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA50"] = df["Close"].rolling(50).mean()
+
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+
+    df["VOL_MA20"] = df["Volume"].rolling(20).mean()
+
+    return df
+
     df = yf.download(symbol, period="6mo", interval="1d", progress=False)
 
     if df.empty:
@@ -98,7 +118,7 @@ with tab1:
 
 # ================== TAB 2 ==================
 with tab2:
-    st.subheader("🧠 AUTO SCAN – Săn cổ phiếu mạnh")
+    st.subheader("🧠 AUTO SCAN – SIÊU CỔ ĐANG VÀO TIỀN")
 
     symbols = [
         "VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "VIC.VN",
@@ -109,48 +129,59 @@ with tab2:
 
     for sym in symbols:
         df = load_data(sym)
-        if df.empty or len(df) < 50:
+        if df.empty or len(df) < 60:
             continue
 
         df = add_indicators(df)
         last = df.iloc[-1]
+        prev = df.iloc[-2]
 
         score = 0
-        if last["Close"] > last["MA20"]:
-            score += 25
-        if last["MA20"] > last["MA50"]:
-            score += 25
-        if last["RSI"] < 70:
-            score += 25
-        if last["MACD"] > 0:
-            score += 25
 
-        if score >= 85:
-            label = "🚀 STRONG BUY"
-        elif score >= 70:
+        # Trend
+        if last["Close"] > last["MA20"]:
+            score += 15
+        if last["MA20"] > last["MA50"]:
+            score += 15
+
+        # Momentum
+        if last["RSI"] < 70 and last["RSI"] > prev["RSI"]:
+            score += 20
+
+        # MACD
+        if last["MACD"] > 0:
+            score += 15
+
+        # Volume Breakout
+        if last["Volume"] > 1.5 * last["VOL_MA20"]:
+            score += 35
+
+        # Label
+        if score >= 80:
+            label = "🚀 SIÊU CỔ – STRONG BUY"
+        elif score >= 60:
             label = "✅ BUY"
-        elif score >= 50:
+        elif score >= 45:
             label = "👀 WATCH"
         else:
-            label = "❌ IGNORE"
+            label = "❌ BỎ QUA"
 
         results.append({
             "Mã": sym,
             "Giá": round(last["Close"], 2),
             "RSI": round(last["RSI"], 2),
-            "Trend Score": score,
+            "Vol x MA20": round(last["Volume"] / last["VOL_MA20"], 2),
+            "Score": score,
             "Trạng thái": label
         })
 
     if results:
         df_result = pd.DataFrame(results)
-        df_result = df_result.sort_values("Trend Score", ascending=False)
+        df_result = df_result.sort_values("Score", ascending=False)
 
-        st.dataframe(
-            df_result,
-            use_container_width=True
-        )
+        st.dataframe(df_result, use_container_width=True)
 
-        st.caption("👉 Gợi ý: Click mã → copy → sang Tab 1 soi kỹ")
+        st.success("👉 Ưu tiên soi các mã 🚀 SIÊU CỔ trong Tab 1")
     else:
-        st.info("Hôm nay không có cổ phiếu đủ chuẩn.")
+        st.info("Hôm nay chưa có siêu cổ đúng chuẩn.")
+cổ phiếu đủ chuẩn.")
