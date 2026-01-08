@@ -10,8 +10,10 @@ st.title("📊 Level X – Trading Dashboard")
 # ================== DATA ==================
 @st.cache_data
 def load_data(symbol):
-    def add_indicators(df):
+    df = yf.download(symbol, period="6mo", interval="1d")
+    df = df.dropna()
     df = df.copy()
+    return df
 
     df["MA20"] = df["Close"].rolling(20).mean()
     df["MA50"] = df["Close"].rolling(50).mean()
