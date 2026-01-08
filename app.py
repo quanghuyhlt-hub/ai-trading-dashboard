@@ -108,23 +108,29 @@ with tab1:
 # TAB 2 – AUTO SCAN (LEVEL X++)
 # =================================================
 with tab2:
-    st.subheader("🧠 AUTO SCAN – Quét cổ phiếu tiềm năng")
+    st.subheader("🧠 AUTO SCAN – Quét toàn sàn cổ phiếu tiềm năng")
 
-    symbols = [
-        "VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "VIC.VN",
-        "SSI.VN", "VND.VN", "PNJ.VN", "GMD.VN", "POW.VN"
+    # ===== DANH SÁCH FULL SÀN (DEMO – SẼ MỞ RỘNG 400 MÃ) =====
+    HOSE = [
+        "VNM.VN","HPG.VN","FPT.VN","MWG.VN","VIC.VN","SSI.VN","VND.VN",
+        "PNJ.VN","GMD.VN","POW.VN","VCB.VN","BID.VN","CTG.VN","MBB.VN",
+        "TCB.VN","VPB.VN","ACB.VN","HDB.VN","STB.VN"
     ]
+
+    symbols = HOSE  # turn sau em bung full 400 mã
 
     results = []
 
     for sym in symbols:
         df_scan = load_data(sym)
-
         if df_scan.empty or len(df_scan) < 50:
             continue
 
+        df_scan = df_scan.copy()
+
         df_scan["MA20"] = df_scan["Close"].rolling(20).mean()
         df_scan["MA50"] = df_scan["Close"].rolling(50).mean()
+        df_scan["VOL_MA20"] = df_scan["Volume"].rolling(20).mean()
 
         delta = df_scan["Close"].diff()
         gain = delta.where(delta > 0, 0).rolling(14).mean()
@@ -132,32 +138,33 @@ with tab2:
         rs = gain / loss
         df_scan["RSI"] = 100 - (100 / (1 + rs))
 
-        close = float(df_scan["Close"].iloc[-1])
-        ma20 = float(df_scan["MA20"].iloc[-1])
-        ma50 = float(df_scan["MA50"].iloc[-1])
-        rsi = float(df_scan["RSI"].iloc[-1])
+        last = df_scan.iloc[-1]
 
-        score = 0
-        if close > ma20:
-            score += 25
-        if ma20 > ma50:
-            score += 25
-        if rsi < 70:
-            score += 25
-        if close > ma50:
-            score += 25
+        # ===== ĐIỀU KIỆN LỌC =====
+        cond_price = last["Close"] > last["MA20"]
+        cond_trend = last["MA20"] > last["MA50"]
+        cond_rsi = 40 <= float(last["RSI"]) <= 65
+        cond_vol = last["Volume"] > last["VOL_MA20"]
 
-        signal = "MUA" if score >= 75 else "THEO DÕI"
+        score = sum([cond_price, cond_trend, cond_rsi, cond_vol]) * 25
 
-        results.append({
-            "Mã": sym,
-            "Giá": round(close, 2),
-            "RSI": round(rsi, 2),
-            "Trend Score (%)": score,
-            "Khuyến nghị": signal
-        })
+        if score >= 75:
+            results.append({
+                "Mã": sym,
+                "Giá": round(float(last["Close"]), 2),
+                "RSI": round(float(last["RSI"]), 1),
+                "Volume": int(last["Volume"]),
+                "Trend Score (%)": score,
+                "Khuyến nghị": "MUA / THEO DÕI SÁT"
+            })
 
     if results:
-        st.dataframe(pd.DataFrame(results), use_container_width=True)
+        st.dataframe(
+            pd.DataFrame(results).sort_values("Trend Score (%)", ascending=False),
+            use_container_width=True
+        )
     else:
-        st.info("Không có cổ phiếu nào đủ chuẩn hiện tại.")
+        st.info("Chưa có cổ phiếu nào đủ chuẩn tại thời điểm này.")
+
+    
+       
