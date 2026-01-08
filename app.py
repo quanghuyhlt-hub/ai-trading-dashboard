@@ -105,18 +105,36 @@ with tab1:
     if last["MACD"] > 0:
         score += 25
 
-    st.subheader("📌 Phân tích nhanh")
+    # ===== PHÂN TÍCH NHANH (FIX SERIES BUG) =====
+st.subheader("📌 Phân tích nhanh")
 
-    if score >= 75:
-        st.success("✅ MUA – Xu hướng tăng mạnh")
-    elif score >= 50:
-        st.info("⏳ THEO DÕI")
-    else:
-        st.warning("⚠️ CHƯA ĐẸP")
+last_close = float(df["Close"].iloc[-1])
+ma20 = float(df["MA20"].iloc[-1])
+ma50 = float(df["MA50"].iloc[-1])
+rsi = float(df["RSI"].iloc[-1])
+macd = float(df["MACD"].iloc[-1])
 
-    st.write(f"Trend Score: **{score}%**")
-    st.write(f"RSI: {round(last['RSI'],2)}")
-    st.write(f"MACD: {round(last['MACD'],2)}")
+score = 0
+if last_close > ma20:
+    score += 25
+if ma20 > ma50:
+    score += 25
+if rsi < 70:
+    score += 25
+if macd > 0:
+    score += 25
+
+if score >= 75:
+    st.success("✅ TÍN HIỆU: MUA – Xu hướng tăng mạnh")
+elif score >= 50:
+    st.info("⏳ THEO DÕI – Đang hình thành xu hướng")
+else:
+    st.warning("⚠️ CHƯA ĐẸP – Tránh vội vàng")
+
+st.write(f"🔢 Trend Score: **{score}%**")
+st.write(f"RSI: {round(rsi, 2)}")
+st.write(f"MACD: {round(macd, 2)}")
+
 
 # ================== TAB 2 ==================
 with tab2:
