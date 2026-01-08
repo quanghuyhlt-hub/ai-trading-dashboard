@@ -98,7 +98,7 @@ with tab1:
 
 # ================== TAB 2 ==================
 with tab2:
-    st.subheader("🧠 AUTO SCAN – Quét cổ phiếu tiềm năng")
+    st.subheader("🧠 AUTO SCAN – Săn cổ phiếu mạnh")
 
     symbols = [
         "VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "VIC.VN",
@@ -122,20 +122,35 @@ with tab2:
             score += 25
         if last["RSI"] < 70:
             score += 25
-        if last["Close"] > last["MA50"]:
+        if last["MACD"] > 0:
             score += 25
 
-        signal = "MUA" if score >= 75 else "THEO DÕI"
+        if score >= 85:
+            label = "🚀 STRONG BUY"
+        elif score >= 70:
+            label = "✅ BUY"
+        elif score >= 50:
+            label = "👀 WATCH"
+        else:
+            label = "❌ IGNORE"
 
         results.append({
             "Mã": sym,
             "Giá": round(last["Close"], 2),
             "RSI": round(last["RSI"], 2),
-            "Trend Score (%)": score,
-            "Khuyến nghị": signal
+            "Trend Score": score,
+            "Trạng thái": label
         })
 
     if results:
-        st.dataframe(pd.DataFrame(results), use_container_width=True)
+        df_result = pd.DataFrame(results)
+        df_result = df_result.sort_values("Trend Score", ascending=False)
+
+        st.dataframe(
+            df_result,
+            use_container_width=True
+        )
+
+        st.caption("👉 Gợi ý: Click mã → copy → sang Tab 1 soi kỹ")
     else:
-        st.info("Không có mã phù hợp hôm nay")
+        st.info("Hôm nay không có cổ phiếu đủ chuẩn.")
