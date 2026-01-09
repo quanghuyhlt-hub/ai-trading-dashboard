@@ -2,6 +2,34 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
+def ai_probability(last, prev):
+    score = 0
+
+    # 1. Giá trên MA20
+    if last["Close"] > last["MA20"]:
+        score += 20
+
+    # 2. Xu hướng
+    if last["MA20"] > last["MA50"]:
+        score += 20
+
+    # 3. RSI đẹp
+    if 45 <= last["RSI"] <= 60:
+        score += 20
+    elif 40 <= last["RSI"] <= 65:
+        score += 10
+
+    # 4. Volume
+    if last["Volume"] > last["VOL_MA20"] * 1.3:
+        score += 20
+    elif last["Volume"] > last["VOL_MA20"]:
+        score += 10
+
+    # 5. Độ dốc MA20
+    if last["MA20"] > prev["MA20"]:
+        score += 20
+
+    return min(score, 100)
 
 # ================== CONFIG ==================
 st.set_page_config(
@@ -145,6 +173,8 @@ with tab2:
         df_scan["RSI"] = 100 - (100 / (1 + rs))
 
         last = df_scan.iloc[-1]
+        prev = df_scan.iloc[-2]
+        ai_score = ai_probability(last, prev)
 
         # ===== ĐIỀU KIỆN LỌC =====
         cond_price = last["Close"] > last["MA20"]
@@ -154,15 +184,17 @@ with tab2:
 
         score = sum([cond_price, cond_trend, cond_rsi, cond_vol]) * 25
 
-        if score >= 75:
+        if score >= 75 and ai_score >= 70:
             results.append({
-                "Mã": sym,
-                "Giá": round(float(last["Close"]), 2),
-                "RSI": round(float(last["RSI"]), 1),
-                "Volume": int(last["Volume"]),
-                "Trend Score (%)": score,
-                "Khuyến nghị": "MUA / THEO DÕI SÁT"
-            })
+        "Mã": sym,
+        "Giá": round(float(last["Close"]), 2),
+        "RSI": round(float(last["RSI"]), 1),
+        "Volume": int(last["Volume"]),
+        "Trend Score (%)": score,
+        "AI xác suất tăng (%)": ai_score,
+        "Khuyến nghị": "MUA" if ai_score >= 80 else "THEO DÕI"
+     })
+
 
     if results:
         st.dataframe(
