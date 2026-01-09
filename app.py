@@ -43,7 +43,7 @@ st.title("📊 Level X – Trading Dashboard")
 # ================== DATA LOADER ==================
 @st.cache_data
 def load_data(symbol):
-    df = fetch_price_from_source(symbol)  # dòng cũ của sếp
+    df = fetch_price_from_source(symbol)
 
     # ===== MOVING AVERAGES =====
     df = df.copy()
