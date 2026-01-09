@@ -207,7 +207,17 @@ with tab2:
         "Volume": int(last["Volume"]),
         "Trend Score (%)": score,
         "AI xác suất tăng (%)": ai_score,
-        "Khuyến nghị": "MUA" if ai_score >= 80 else "THEO DÕI"
+        "Khuyến nghị": "MUA" if ai_score >= 80:
+            message = f"""
+        🚀 <b>KÈO AI LEVEL X</b>
+        📌 Mã: <b>{sym}</b>
+        💰 Giá: {round(float(last["Close"]),2)}
+        📈 RSI: {round(float(last["RSI"]),1)}
+        🧠 AI xác suất tăng: <b>{ai_score}%</b>
+        ⏰ Timeframe: Daily
+        """
+            send_telegram(message)
+         else "THEO DÕI"
      })
 
 
