@@ -1,3 +1,18 @@
+import requests
+BOT_TOKEN = "8529321167:AAFRd7ODAdCtA_9lYzFkFLsAgs1G-W1jvH4"
+CHAT_ID = "-1003320239264"
+def send_telegram(msg):
+    url = f"https://api.telegram.org/bot{8529321167:AAFRd7ODAdCtA_9lYzFkFLsAgs1G-W1jvH4}/sendMessage"
+    payload = {
+        "chat_id": -1003320239264,
+        "text": msg,
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(url, data=payload, timeout=5)
+    except:
+        pass
+
 import streamlit as st
 import pandas as pd
 import yfinance as yf
