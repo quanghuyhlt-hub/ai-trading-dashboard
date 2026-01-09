@@ -222,4 +222,5 @@ if results:
     st.dataframe(pd.DataFrame(results), use_container_width=True)
 else:
     st.info("Không có cổ phiếu đủ điều kiện hiện tại.")
+st.write(df.tail(3)[["Close","MA20","MA50","MA20_cross_3"]])
 
