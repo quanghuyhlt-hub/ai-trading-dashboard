@@ -209,7 +209,7 @@ with tab2:
             "RSI": round(float(last["RSI"]), 1),
             "Trend Score (%)": ai_score,
             "Khuyến nghị": signal
-        })
+    })
 
 
 
