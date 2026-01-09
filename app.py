@@ -201,24 +201,16 @@ with tab2:
 
         if score >= 75 and ai_score >= 70:
             results.append({
-        "Mã": sym,
-        "Giá": round(float(last["Close"]), 2),
-        "RSI": round(float(last["RSI"]), 1),
-        "Volume": int(last["Volume"]),
-        "Trend Score (%)": score,
-        "AI xác suất tăng (%)": ai_score,
-        "Khuyến nghị": "MUA" if ai_score >= 80:
-            message = f"""
-        🚀 <b>KÈO AI LEVEL X</b>
-        📌 Mã: <b>{sym}</b>
-        💰 Giá: {round(float(last["Close"]),2)}
-        📈 RSI: {round(float(last["RSI"]),1)}
-        🧠 AI xác suất tăng: <b>{ai_score}%</b>
-        ⏰ Timeframe: Daily
-        """
-            send_telegram(message)
-         else "THEO DÕI"
-     })
+        signal = "MUA" if ai_score >= 80 else "THEO DÕI"
+
+        results.append({
+            "Mã": sym,
+            "Giá": round(float(last["Close"]), 2),
+            "RSI": round(float(last["RSI"]), 1),
+            "Trend Score (%)": ai_score,
+            "Khuyến nghị": signal
+        })
+
 
 
     if results:
