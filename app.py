@@ -215,14 +215,13 @@ for sym in symbols:
     signal = "MUA" if ai_score >= 80 else "THEO DÕI"
 
     results.append({
-        filtered = df[
-    (df["MA20_cross_3"]) &
-    (df["Close"] > df["MA20"]) &
-    (df["RSI"] >= 45) & (df["RSI"] <= 65) &
-    (df["Volume"] >= df["Volume"].rolling(20).mean())
-]
-
-
+    "Mã": symbol,
+    "Giá": round(last["Close"], 2),
+    "MA20": round(last["MA20"], 2),
+    "MA50": round(last["MA50"], 2),
+    "AI Score": ai_score,
+    "Khuyến nghị": "MUA" if ai_score >= 80 else "THEO DÕI"
+})
 if results:
     st.dataframe(pd.DataFrame(results), use_container_width=True)
 else:
