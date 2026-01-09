@@ -170,56 +170,45 @@ with tab2:
 
     results = []
 
-    for sym in symbols:
-        df_scan = load_data(sym)
-        if df_scan.empty or len(df_scan) < 60:
-            continue
+for sym in symbols:
+    df_scan = load_data(sym)
 
-        df_scan = df_scan.copy()
+    if df_scan.empty or len(df_scan) < 50:
+        continue
 
-        df_scan["MA20"] = df_scan["Close"].rolling(20).mean()
-        df_scan["MA50"] = df_scan["Close"].rolling(50).mean()
-        df_scan["VOL_MA20"] = df_scan["Volume"].rolling(20).mean()
+    df_scan["MA20"] = df_scan["Close"].rolling(20).mean()
+    df_scan["MA50"] = df_scan["Close"].rolling(50).mean()
 
-        delta = df_scan["Close"].diff()
-        gain = delta.where(delta > 0, 0).rolling(14).mean()
-        loss = -delta.where(delta < 0, 0).rolling(14).mean()
-        rs = gain / loss
-        df_scan["RSI"] = 100 - (100 / (1 + rs))
+    delta = df_scan["Close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df_scan["RSI"] = 100 - (100 / (1 + rs))
 
-        last = df_scan.iloc[-1]
-        prev = df_scan.iloc[-2]
-        ai_score = ai_probability(last, prev)
+    last = df_scan.iloc[-1]
 
-        # ===== ĐIỀU KIỆN LỌC =====
-        cond_price = last["Close"] > last["MA20"]
-        cond_trend = last["MA20"] > last["MA50"]
-        cond_rsi = 40 <= float(last["RSI"]) <= 65
-        cond_vol = last["Volume"] > last["VOL_MA20"]
+    ai_score = 0
+    if last["Close"] > last["MA20"]:
+        ai_score += 25
+    if last["MA20"] > last["MA50"]:
+        ai_score += 25
+    if last["RSI"] < 70:
+        ai_score += 25
+    if last["Close"] > last["MA50"]:
+        ai_score += 25
 
-        score = sum([cond_price, cond_trend, cond_rsi, cond_vol]) * 25
+    signal = "MUA" if ai_score >= 80 else "THEO DÕI"
 
-        if score >= 75 and ai_score >= 70:
-            results.append({
-        signal = "MUA" if ai_score >= 80 else "THEO DÕI"
-
-        results.append({
-            "Mã": sym,
-            "Giá": round(float(last["Close"]), 2),
-            "RSI": round(float(last["RSI"]), 1),
-            "Trend Score (%)": ai_score,
-            "Khuyến nghị": signal
+    results.append({
+        "Mã": sym,
+        "Giá": round(float(last["Close"]), 2),
+        "RSI": round(float(last["RSI"]), 1),
+        "Trend Score (%)": ai_score,
+        "Khuyến nghị": signal
     })
 
+if results:
+    st.dataframe(pd.DataFrame(results), use_container_width=True)
+else:
+    st.info("Không có cổ phiếu đủ điều kiện hiện tại.")
 
-
-    if results:
-        st.dataframe(
-            pd.DataFrame(results).sort_values("Trend Score (%)", ascending=False),
-            use_container_width=True
-        )
-    else:
-        st.info("Hiện chưa có cổ phiếu nào đạt chuẩn trend.")
-
-    
-       
