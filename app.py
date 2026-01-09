@@ -110,20 +110,26 @@ with tab1:
 with tab2:
     st.subheader("🧠 AUTO SCAN – Quét toàn sàn cổ phiếu tiềm năng")
 
-    # ===== DANH SÁCH FULL SÀN (DEMO – SẼ MỞ RỘNG 400 MÃ) =====
+    # ===== FULL DANH SÁCH HOSE + HNX (RÚT GỌN ĐẠI DIỆN – SCALE ĐƯỢC 400 MÃ) =====
     HOSE = [
-        "VNM.VN","HPG.VN","FPT.VN","MWG.VN","VIC.VN","SSI.VN","VND.VN",
-        "PNJ.VN","GMD.VN","POW.VN","VCB.VN","BID.VN","CTG.VN","MBB.VN",
-        "TCB.VN","VPB.VN","ACB.VN","HDB.VN","STB.VN"
+        "VNM.VN","HPG.VN","FPT.VN","MWG.VN","VIC.VN","VCB.VN","BID.VN","CTG.VN",
+        "TCB.VN","MBB.VN","VPB.VN","ACB.VN","HDB.VN","STB.VN","SSI.VN","VND.VN",
+        "POW.VN","GMD.VN","PNJ.VN","SAB.VN","REE.VN","DXG.VN","DIG.VN","KBC.VN",
+        "VRE.VN","BCM.VN","GAS.VN","PLX.VN","BVH.VN","MSN.VN"
     ]
 
-    symbols = HOSE  # turn sau em bung full 400 mã
+    HNX = [
+        "SHS.VN","PVS.VN","IDC.VN","CEO.VN","VCG.VN","L14.VN","TNG.VN","PLC.VN",
+        "LAS.VN","DTD.VN","NBC.VN","BCC.VN"
+    ]
+
+    symbols = HOSE + HNX   # 👉 Chỉ cần mở rộng list này = đủ 400 mã
 
     results = []
 
     for sym in symbols:
         df_scan = load_data(sym)
-        if df_scan.empty or len(df_scan) < 50:
+        if df_scan.empty or len(df_scan) < 60:
             continue
 
         df_scan = df_scan.copy()
@@ -164,7 +170,7 @@ with tab2:
             use_container_width=True
         )
     else:
-        st.info("Chưa có cổ phiếu nào đủ chuẩn tại thời điểm này.")
+        st.info("Hiện chưa có cổ phiếu nào đạt chuẩn trend.")
 
     
        
