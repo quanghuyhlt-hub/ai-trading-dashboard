@@ -1,37 +1,20 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import yfinance as yf
+import numpy as np
 
-st.set_page_config(
-    page_title="Auto Scan MA20/MA50",
-    layout="wide"
-)
+st.set_page_config(page_title="Level X – Trading Dashboard", layout="wide")
 
 # =========================
-# LOAD DATA (FIX MULTIINDEX)
+# DATA
 # =========================
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_data(symbol):
-    df = yf.download(symbol, period="1y", interval="1d", auto_adjust=True)
-
-    if df is None or df.empty:
+    df = yf.download(symbol, period="6mo", interval="1d", progress=False)
+    if df.empty:
         return None
-
-    # FIX lỗi MultiIndex của yfinance
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    df = df.rename(columns={
-        "Open": "open",
-        "High": "high",
-        "Low": "low",
-        "Close": "close",
-        "Volume": "volume"
-    })
-
-    return df.dropna()
-
+    df = df.reset_index()
+    return df
 
 # =========================
 # INDICATORS
@@ -39,98 +22,107 @@ def load_data(symbol):
 def add_indicators(df):
     df = df.copy()
 
-    df["MA20"] = df["close"].rolling(20).mean()
-    df["MA50"] = df["close"].rolling(50).mean()
-    df["VOL_MA20"] = df["volume"].rolling(20).mean()
+    df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA50"] = df["Close"].rolling(50).mean()
 
-    # MA20 cắt lên MA50
-    df["MA_CROSS_UP"] = (
-        (df["MA20"] > df["MA50"]) &
-        (df["MA20"].shift(1) <= df["MA50"].shift(1))
-    )
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
 
-    # Số phiên kể từ lần cắt gần nhất
-    df["DAYS_FROM_CROSS"] = np.nan
-    cross_idx = df.index[df["MA_CROSS_UP"]]
+    df["Vol_MA20"] = df["Volume"].rolling(20).mean()
 
-    if len(cross_idx) > 0:
-        last_cross = cross_idx[-1]
-        df.loc[last_cross:, "DAYS_FROM_CROSS"] = range(len(df.loc[last_cross:]))
+    return df
 
-    # Giá đã đi xa MA20 bao nhiêu %
-    df["DIST_TO_MA20"] = ((df["close"] - df["MA20"]) / df["MA20"]) * 100
+# =========================
+# MA CROSS LOGIC
+# =========================
+def count_days_since_cross(df):
+    cross = (df["MA20"] > df["MA50"]) & (df["MA20"].shift(1) <= df["MA50"].shift(1))
+    idx = np.where(cross)[0]
+    if len(idx) == 0:
+        return None
+    return len(df) - idx[-1] - 1
 
-    return df.dropna()
+# =========================
+# SCORING
+# =========================
+def calc_score(row, days_from_cross):
+    score = 0
 
+    if row["MA20"] > row["MA50"]:
+        score += 20
+
+    if days_from_cross is not None and days_from_cross <= 5:
+        score += 25
+
+    dist = (row["Close"] - row["MA20"]) / row["MA20"] * 100
+    if dist < 5:
+        score += 20
+
+    if row["RSI"] < 70:
+        score += 15
+
+    if row["Volume"] > row["Vol_MA20"]:
+        score += 20
+
+    return score, dist
+
+def rating(score):
+    if score >= 80:
+        return "🟢 NÊN THEO DÕI / CANH MUA"
+    if score >= 65:
+        return "🟡 QUAN SÁT"
+    return "🔴 KHÔNG ƯU TIÊN"
 
 # =========================
 # UI
 # =========================
-st.title("📈 AUTO SCAN – MA20 cắt MA50 (Điểm vào sớm)")
+st.title("📊 Level X – Trading Dashboard")
 
 tab1, tab2 = st.tabs(["🔍 Phân tích 1 mã", "🧠 AUTO SCAN"])
 
-
 # =========================
-# TAB 1 – PHÂN TÍCH 1 MÃ
+# TAB 1
 # =========================
 with tab1:
     symbol = st.text_input("Nhập mã cổ phiếu (VD: VNM.VN, HPG.VN)", "VNM.VN")
 
-    if symbol:
-        df = load_data(symbol)
+    df = load_data(symbol)
+    if df is None:
+        st.error("Không tải được dữ liệu")
+    else:
+        df = add_indicators(df)
+        last = df.iloc[-1]
+        days = count_days_since_cross(df)
 
-        if df is None:
-            st.error("❌ Không tải được dữ liệu")
-        else:
-            df = add_indicators(df)
-            last = df.iloc[-1]
+        score, dist = calc_score(last, days)
 
-            st.subheader(f"📌 {symbol}")
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric("Giá hiện tại", round(last["close"], 2))
-            col2.metric("MA20", round(last["MA20"], 2))
-            col3.metric("MA50", round(last["MA50"], 2))
-
-            if last["MA20"] > last["MA50"]:
-                st.success("✅ Xu hướng tăng (MA20 > MA50)")
-            else:
-                st.warning("⚠️ Xu hướng chưa rõ ràng")
-
-            if last["DIST_TO_MA20"] < 5:
-                st.info("🎯 Giá còn gần MA20 – chưa bị kéo quá xa")
-            else:
-                st.warning("🚨 Giá đã tăng khá xa MA20 – cân nhắc rủi ro")
-
-            st.dataframe(df.tail(20))
-
+        st.subheader(f"📌 {symbol}")
+        st.write(f"**Giá:** {last['Close']:.2f}")
+        st.write(f"**MA20 / MA50:** {last['MA20']:.2f} / {last['MA50']:.2f}")
+        st.write(f"**RSI:** {last['RSI']:.1f}")
+        st.write(f"**Cách MA20:** {dist:.2f}%")
+        st.write(f"**Phiên từ MA20 cắt MA50:** {days}")
+        st.write(f"**Score:** {score}")
+        st.success(rating(score))
 
 # =========================
 # TAB 2 – AUTO SCAN
 # =========================
 with tab2:
-    st.subheader("🧠 Lọc cổ phiếu MA20 vừa cắt MA50")
-
     symbols = st.text_area(
-        "Danh sách mã (mỗi mã 1 dòng)",
+        "Danh sách mã (mỗi dòng 1 mã – VD: VNM.VN)",
         "VNM.VN\nHPG.VN\nFPT.VN\nMWG.VN"
     )
 
-    max_days = st.slider(
-        "Số phiên tối đa kể từ lúc MA20 cắt MA50",
-        min_value=1,
-        max_value=20,
-        value=5
-    )
-
-    if st.button("🚀 SCAN"):
+    if st.button("🚀 BẮT ĐẦU SCAN"):
         results = []
 
         for sym in symbols.splitlines():
             sym = sym.strip()
-            if not sym:
+            if sym == "":
                 continue
 
             df = load_data(sym)
@@ -139,22 +131,24 @@ with tab2:
 
             df = add_indicators(df)
             last = df.iloc[-1]
+            days = count_days_since_cross(df)
+            score, dist = calc_score(last, days)
 
-            if (
-                last["MA20"] > last["MA50"]
-                and last["DAYS_FROM_CROSS"] <= max_days
-                and last["DIST_TO_MA20"] < 7
-            ):
-                results.append({
-                    "Mã": sym,
-                    "Giá": round(last["close"], 2),
-                    "Phiên từ MA20 cắt MA50": int(last["DAYS_FROM_CROSS"]),
-                    "Cách MA20 (%)": round(last["DIST_TO_MA20"], 2),
-                    "Nhận định": "Điểm vào sớm – chưa bị kéo quá xa"
-                })
+            results.append({
+                "Mã": sym,
+                "Giá": round(last["Close"], 2),
+                "MA20": round(last["MA20"], 2),
+                "MA50": round(last["MA50"], 2),
+                "Phiên từ Cross": days,
+                "Cách MA20 (%)": round(dist, 2),
+                "RSI": round(last["RSI"], 1),
+                "Vol > MA20": "✅" if last["Volume"] > last["Vol_MA20"] else "❌",
+                "Score": score,
+                "Nhận định": rating(score)
+            })
 
         if results:
-            st.success(f"✅ Tìm được {len(results)} mã phù hợp")
-            st.dataframe(pd.DataFrame(results))
+            df_result = pd.DataFrame(results).sort_values("Score", ascending=False)
+            st.dataframe(df_result, use_container_width=True)
         else:
-            st.warning("❌ Không có mã nào đạt điều kiện")
+            st.warning("Không có mã nào phù hợp")
