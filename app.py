@@ -43,6 +43,30 @@ st.title("📊 Level X – Trading Dashboard")
 # ================== DATA LOADER ==================
 @st.cache_data
 def load_data(symbol):
+    # ===== MOVING AVERAGES =====
+df = df.copy()
+
+df["MA20"] = df["Close"].rolling(20).mean()
+df["MA50"] = df["Close"].rolling(50).mean()
+
+df["MA20_prev1"] = df["MA20"].shift(1)
+df["MA50_prev1"] = df["MA50"].shift(1)
+
+df["MA20_prev2"] = df["MA20"].shift(2)
+df["MA50_prev2"] = df["MA50"].shift(2)
+
+df["MA20_prev3"] = df["MA20"].shift(3)
+df["MA50_prev3"] = df["MA50"].shift(3)
+# ===== MA20 CROSS MA50 IN 3 SESSIONS =====
+df["MA20_cross_3"] = (
+    (df["MA20"] > df["MA50"]) &
+    (
+        (df["MA20_prev1"] <= df["MA50_prev1"]) |
+        (df["MA20_prev2"] <= df["MA50_prev2"]) |
+        (df["MA20_prev3"] <= df["MA50_prev3"])
+    )
+)
+
     df = yf.download(symbol, period="6mo", interval="1d", progress=False)
 
     if isinstance(df.columns, pd.MultiIndex):
@@ -186,12 +210,13 @@ for sym in symbols:
     signal = "MUA" if ai_score >= 80 else "THEO DÕI"
 
     results.append({
-        "Mã": sym,
-        "Giá": round(float(last["Close"]), 2),
-        "RSI": round(float(last["RSI"]), 1),
-        "Trend Score (%)": ai_score,
-        "Khuyến nghị": signal
-    })
+        filtered = df[
+    (df["MA20_cross_3"]) &
+    (df["Close"] > df["MA20"]) &
+    (df["RSI"] >= 45) & (df["RSI"] <= 65) &
+    (df["Volume"] >= df["Volume"].rolling(20).mean())
+]
+
 
 if results:
     st.dataframe(pd.DataFrame(results), use_container_width=True)
