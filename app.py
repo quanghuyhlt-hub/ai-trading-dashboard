@@ -3,126 +3,111 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
-# ================= CONFIG =================
-st.set_page_config(page_title="Level X Stock Scanner", layout="wide")
-st.title("📊 Level X – Bộ lọc cổ phiếu vào sóng")
+st.set_page_config(page_title="AI Stock Scanner", layout="wide")
 
-# ================= DATA =================
-@st.cache_data
-def load_data(symbol):
-    df = yf.download(symbol, period="6mo", interval="1d", progress=False)
+# =========================
+# FUNCTIONS
+# =========================
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+def SMA(series, window):
+    return series.rolling(window).mean()
 
-    if df.empty or len(df) < 60:
-        return pd.DataFrame()
+def RSI(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
-    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-    df.dropna(inplace=True)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
 
-    # Indicators
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["MA50"] = df["Close"].rolling(50).mean()
-    df["Vol_MA20"] = df["Volume"].rolling(20).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-    delta = df["Close"].diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = -delta.clip(upper=0).rolling(14).mean()
-    rs = gain / loss
-    df["RSI"] = 100 - (100 / (1 + rs))
-
+def load_data(symbol, days=200):
+    df = yf.download(symbol, period=f"{days}d", progress=False)
+    if df.empty:
+        return None
+    df = df.reset_index()
     return df
 
-# ================= LOGIC =================
-def days_since_cross(df):
-    cross = df["MA20"] > df["MA50"]
-    cross_idx = np.where(cross & ~cross.shift(1).fillna(False))[0]
-    if len(cross_idx) == 0:
-        return None
-    return len(df) - cross_idx[-1] - 1
-
-def calc_score(last, days):
-    score = 0
-
-    if last["MA20"] > last["MA50"]:
-        score += 20
-    if days is not None and days <= 5:
-        score += 25
-    if last["Close"] > last["MA20"]:
-        score += 15
-
-    dist = (last["Close"] - last["MA20"]) / last["MA20"] * 100
-    if dist < 5:
-        score += 20
-
-    if last["RSI"] < 70:
-        score += 10
-    if last["Volume"] > last["Vol_MA20"]:
-        score += 10
-
-    return score, round(dist, 2)
-
-# ================= TABS =================
-tab1, tab2 = st.tabs(["🔍 Phân tích 1 mã", "🧠 AUTO SCAN"])
-
-# ================= TAB 1 =================
-with tab1:
-    symbol = st.text_input("Nhập mã (VD: HPG.VN, FPT.VN)", "HPG.VN")
+def analyze_stock(symbol):
     df = load_data(symbol)
+    if df is None or len(df) < 60:
+        return None
 
-    if df.empty:
-        st.warning("Không có dữ liệu.")
-        st.stop()
+    df["MA20"] = SMA(df["Close"], 20)
+    df["MA50"] = SMA(df["Close"], 50)
+    df["RSI"] = RSI(df["Close"], 14)
+    df["VolMA20"] = SMA(df["Volume"], 20)
 
     last = df.iloc[-1]
-    days = days_since_cross(df)
-    score, dist = calc_score(last, days)
 
-    st.metric("Giá hiện tại", round(float(last["Close"]), 2))
-    st.metric("RSI", round(float(last["RSI"]), 2))
-    st.metric("Score", score)
+    conditions = {
+        "Giá > MA20": last["Close"] > last["MA20"],
+        "MA20 > MA50": last["MA20"] > last["MA50"],
+        "RSI > 50": last["RSI"] > 50,
+        "RSI < 70": last["RSI"] < 70,
+        "Volume > VolMA20": last["Volume"] > last["VolMA20"],
+    }
 
-    if score >= 80:
-        st.success("🟢 NÊN THEO DÕI / CANH MUA")
-    elif score >= 65:
-        st.info("🟡 QUAN SÁT")
+    score = sum(conditions.values())
+
+    result = {
+        "Mã": symbol,
+        "Giá hiện tại": round(last["Close"], 2),
+        "RSI": round(last["RSI"], 1),
+        "Score": score,
+    }
+
+    for k, v in conditions.items():
+        result[k] = "✅" if v else "❌"
+
+    return result
+
+# =========================
+# UI
+# =========================
+
+st.title("📈 AI Trading Scanner – Decision Support")
+
+st.markdown("""
+Scan cổ phiếu theo **nhiều điều kiện kỹ thuật**  
+👉 Không phán BUY/SELL ngu học  
+👉 **Cho bảng điều kiện để con người quyết**
+""")
+
+symbols_input = st.text_area(
+    "Nhập danh sách mã (mỗi mã 1 dòng – ví dụ: AAPL, MSFT, NVDA)",
+    height=150
+)
+
+if st.button("🚀 Scan ngay"):
+    symbols = [s.strip().upper() for s in symbols_input.splitlines() if s.strip()]
+
+    if not symbols:
+        st.warning("Nhập mã trước đã sếp ơi 😅")
     else:
-        st.warning("🔴 CHƯA ƯU TIÊN")
+        results = []
 
-# ================= TAB 2 =================
-with tab2:
-    st.subheader("🧠 AUTO SCAN – Cổ phiếu vào sóng sớm")
+        with st.spinner("Đang scan..."):
+            for sym in symbols:
+                r = analyze_stock(sym)
+                if r:
+                    results.append(r)
 
-    symbols = [
-        "HPG.VN","FPT.VN","MWG.VN","VNM.VN","PNJ.VN",
-        "GMD.VN","SSI.VN","VND.VN","POW.VN","VIC.VN"
-    ]
+        if not results:
+            st.error("Không mã nào đủ dữ liệu")
+        else:
+            df_result = pd.DataFrame(results)
+            df_result = df_result.sort_values("Score", ascending=False)
 
-    rows = []
+            st.subheader("📊 BẢNG HỖ TRỢ QUYẾT ĐỊNH")
+            st.dataframe(df_result, use_container_width=True)
 
-    for sym in symbols:
-        df = load_data(sym)
-        if df.empty:
-            continue
-
-        last = df.iloc[-1]
-        days = days_since_cross(df)
-        score, dist = calc_score(last, days)
-
-        rows.append({
-            "Mã": sym,
-            "Giá": round(float(last["Close"]), 2),
-            "RSI": round(float(last["RSI"]), 1),
-            "Phiên từ MA20 cắt MA50": days,
-            "Cách MA20 (%)": dist,
-            "Volume > MA20": "✅" if last["Volume"] > last["Vol_MA20"] else "❌",
-            "Score": score,
-            "Nhận định": "NÊN THEO DÕI" if score >= 80 else "QUAN SÁT"
-        })
-
-    if rows:
-        st.dataframe(pd.DataFrame(rows).sort_values("Score", ascending=False),
-                     use_container_width=True)
-    else:
-        st.info("Không có mã phù hợp.")
+            st.markdown("""
+### 🧠 Cách đọc bảng
+- **Score càng cao → càng nhiều điều kiện ủng hộ**
+- ❌ xuất hiện nhiều → bỏ qua hoặc chờ
+- Đây là **decision-support**, không phải thầy bói
+""")
