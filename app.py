@@ -1,7 +1,6 @@
-
+import yfinance as yf
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import plotly.graph_objects as go
 def ai_probability(last, prev):
     score = 0
@@ -44,6 +43,13 @@ st.title("📊 Level X – Trading Dashboard")
 @st.cache_data
 def load_data(symbol):
     df = fetch_price_from_source(symbol)
+    df = df.copy()
+
+    df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA50"] = df["Close"].rolling(50).mean()
+
+    return df
+
 
     # ===== MOVING AVERAGES =====
     df = df.copy()
