@@ -125,9 +125,11 @@ if st.button("🚀 AUTO SCAN PRO"):
         st.warning("Không có mã nào đạt điều kiện.")
 st.subheader("📊 Phân tích chi tiết")
 
+results = st.session_state.results
+
 if results:
     selected = st.selectbox(
-        "Chọn mã để xem chi tiết",
+        "Chọn mã để xem setup Trader-ready",
         [r["Mã"] for r in results]
     )
 
@@ -142,13 +144,13 @@ if results:
     stoploss = ma20 * 0.97
     target = entry + 2 * (entry - stoploss)
 
-    chart_df = df_detail[["Close", "MA20", "MA50"]]
+    st.line_chart(df_detail[["Close", "MA20", "MA50"]])
 
-    st.line_chart(chart_df)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🎯 Entry", round(entry, 2))
+    c2.metric("🛑 Stoploss", round(stoploss, 2))
+    c3.metric("🚀 Target", round(target, 2))
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("🎯 Entry", round(entry, 2))
-    col2.metric("🛑 Stoploss", round(stoploss, 2))
-    col3.metric("🚀 Target", round(target, 2))
-
-    st.info("👉 Đây là setup **Trader-ready**. Chỉ vào lệnh khi giá giữ trên MA20 và volume xác nhận.")
+    st.success("✅ Setup hợp lệ cho Trader – chờ xác nhận volume để vào lệnh")
+else:
+    st.warning("⚠️ Chưa có mã nào được scan. Hãy bấm AUTO SCAN PRO trước.")
