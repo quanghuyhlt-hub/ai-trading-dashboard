@@ -1,191 +1,135 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-from datetime import datetime
+import yfinance as yf
 
-# ================= CONFIG =================
+# ================== CONFIG ==================
 st.set_page_config(page_title="Pro Trader+ Scanner", layout="wide")
-st.title("🚀 PRO TRADER+ SCANNER")
-st.caption("Trend • Entry • SL • TP • Win-rate estimate")
+st.title("📈 PRO TRADER+ – AUTO STOCK SCANNER (VN)")
 
-# ================= INDICATORS =================
-def rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(period).mean()
-    avg_loss = loss.rolling(period).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+# ================== STOCK LIST ==================
+# Demo subset – khi chạy ổn sẽ mở rộng lên ~400 mã
+VN_STOCKS = [
+    "VNM.VN","HPG.VN","FPT.VN","MWG.VN","VIC.VN","VCB.VN","CTG.VN","BID.VN",
+    "SSI.VN","VND.VN","PNJ.VN","GMD.VN","POW.VN","STB.VN","TCB.VN","ACB.VN"
+]
 
+# ================== DATA ==================
+@st.cache_data
+def load_data(symbol):
+    df = yf.download(symbol, period="8mo", interval="1d", progress=False)
+    if df.empty:
+        return df
 
-def atr(df, period=14):
-    high_low = df["High"] - df["Low"]
-    high_close = abs(df["High"] - df["Close"].shift())
-    low_close = abs(df["Low"] - df["Close"].shift())
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    return tr.rolling(period).mean()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
+    df = df[["Open","High","Low","Close","Volume"]]
+    df.dropna(inplace=True)
+    return df
 
-# ================= CORE ANALYSIS =================
-def analyze_stock(symbol):
-    try:
-        df = yf.download(symbol, period="6mo", interval="1d", progress=False)
-        if df.empty or len(df) < 60:
-            return None
+# ================== INDICATORS ==================
+def add_indicators(df):
+    df = df.copy()
 
-        df["MA20"] = df["Close"].rolling(20).mean()
-        df["MA50"] = df["Close"].rolling(50).mean()
-        df["RSI"] = rsi(df["Close"])
-        df["ATR"] = atr(df)
+    df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA50"] = df["Close"].rolling(50).mean()
+    df["MA200"] = df["Close"].rolling(200).mean()
 
-        last = df.iloc[-1]
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
 
-        close = float(last["Close"])
-        ma20 = float(last["MA20"])
-        ma50 = float(last["MA50"])
-        rsi_val = float(last["RSI"])
-        atr_val = float(last["ATR"])
+    tr = pd.concat([
+        df["High"] - df["Low"],
+        abs(df["High"] - df["Close"].shift()),
+        abs(df["Low"] - df["Close"].shift())
+    ], axis=1).max(axis=1)
 
-        score = 0
-        notes = []
+    df["ATR"] = tr.rolling(14).mean()
 
-        # Trend
-        if ma20 > ma50:
-            score += 2
-            notes.append("Uptrend (MA20 > MA50)")
+    return df
 
-        # Price position
-        if abs(close - ma20) / ma20 * 100 <= 3:
-            score += 2
-            notes.append("Giá quanh MA20")
+# ================== SCORING LOGIC ==================
+def analyze_stock(df):
+    last = df.iloc[-1]
 
-        # RSI
-        if 50 <= rsi_val <= 65:
-            score += 2
-            notes.append("RSI khỏe")
+    score = 0
+    notes = []
 
-        # Momentum
-        if close > df["Close"].iloc[-5]:
-            score += 1
-            notes.append("Momentum ngắn hạn tốt")
+    if last["Close"] > last["MA50"] > last["MA200"]:
+        score += 30
+        notes.append("Xu hướng tăng trung hạn")
 
-        # ================= ENTRY / SL / TP =================
-        entry = close
-        sl = round(entry - 1.5 * atr_val, 2)
-        tp1 = round(entry + 1.5 * atr_val, 2)
-        tp2 = round(entry + 3 * atr_val, 2)
+    if last["MA20"] > last["MA50"]:
+        score += 25
+        notes.append("MA20 nằm trên MA50")
 
-        rr = round((tp1 - entry) / (entry - sl), 2)
+    if 50 <= last["RSI"] <= 65:
+        score += 20
+        notes.append("RSI khỏe, chưa quá mua")
 
-        # ================= CLASSIFY =================
-        if score >= 6 and rr >= 1.2:
-            level = "🔥 PRO TRADER+"
-            action = "Có thể vào lệnh"
-            winrate = "60–70%"
-        elif score >= 4:
-            level = "🟢 TRADER"
-            action = "Theo dõi, chờ breakout"
-            winrate = "50–55%"
-        else:
-            level = "⚠️ NO TRADE"
-            action = "Không nên giao dịch"
-            winrate = "<45%"
+    if last["Close"] > last["MA20"]:
+        score += 15
+        notes.append("Giá giữ trên MA20")
 
-        return {
-            "Symbol": symbol,
-            "Close": round(close, 2),
-            "RSI": round(rsi_val, 1),
-            "Score": score,
-            "Level": level,
-            "Winrate": winrate,
-            "Entry": round(entry, 2),
-            "SL": sl,
-            "TP1": tp1,
-            "TP2": tp2,
-            "RR": rr,
-            "Action": action,
-            "Notes": ", ".join(notes),
-            "Data": df
-        }
+    if last["Volume"] > df["Volume"].rolling(20).mean().iloc[-1]:
+        score += 10
+        notes.append("Volume cải thiện")
 
-    except:
-        return None
+    # Level
+    if score >= 80:
+        level = "🚀 PRO TRADER+"
+    elif score >= 65:
+        level = "✅ TRADER"
+    elif score >= 50:
+        level = "👀 WATCH"
+    else:
+        level = "❌ NO TRADE"
 
+    # Risk
+    entry = last["Close"]
+    sl = entry - last["ATR"] * 1.5
+    tp = entry + last["ATR"] * 3
+    rr = (tp - entry) / (entry - sl) if entry > sl else np.nan
 
-# ================= CHART =================
-def plot_chart(df, symbol, entry, sl, tp1, tp2):
-    fig = go.Figure()
+    return {
+        "Level": level,
+        "Score": score,
+        "Entry": round(entry,2),
+        "Stop Loss": round(sl,2),
+        "Take Profit": round(tp,2),
+        "RR": round(rr,2),
+        "Nhận định": "; ".join(notes)
+    }
 
-    fig.add_candlestick(
-        x=df.index,
-        open=df["Open"],
-        high=df["High"],
-        low=df["Low"],
-        close=df["Close"],
-        name="Price"
-    )
+# ================== UI ==================
+st.subheader("🚀 AUTO SCAN TOÀN DANH SÁCH")
 
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA20"], name="MA20"))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA50"], name="MA50"))
-
-    fig.add_hline(y=entry, line_dash="dot", annotation_text="ENTRY")
-    fig.add_hline(y=sl, line_dash="dash", annotation_text="SL")
-    fig.add_hline(y=tp1, line_dash="dot", annotation_text="TP1")
-    fig.add_hline(y=tp2, line_dash="dot", annotation_text="TP2")
-
-    fig.update_layout(height=520, title=symbol, xaxis_rangeslider_visible=False)
-    return fig
-
-
-# ================= UI =================
-st.sidebar.header("⚙️ Scanner")
-
-symbols_input = st.sidebar.text_area(
-    "Danh sách mã (demo)",
-    "VCB.VN, FPT.VN, HPG.VN, VNM.VN"
-)
-
-scan = st.sidebar.button("🚀 AUTO SCAN PRO+")
-
-symbols = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
-
-# ================= RUN =================
-if scan:
+if st.button("🔍 QUÉT PRO TRADER+"):
     results = []
 
-    with st.spinner("Quét thị trường..."):
-        for s in symbols:
-            r = analyze_stock(s)
-            if r:
-                results.append(r)
+    with st.spinner("Đang quét thị trường..."):
+        for sym in VN_STOCKS:
+            df = load_data(sym)
+            if df.empty or len(df) < 200:
+                continue
 
-    if not results:
-        st.error("Không có mã hợp lệ")
+            df = add_indicators(df)
+            res = analyze_stock(df)
+
+            results.append({
+                "Mã": sym,
+                **res
+            })
+
+    if results:
+        df_result = pd.DataFrame(results)
+        df_result = df_result.sort_values("Score", ascending=False)
+
+        st.success("✅ Quét xong – đây là các cơ hội đáng chú ý")
+        st.dataframe(df_result, use_container_width=True)
     else:
-        table = pd.DataFrame(results).drop(columns=["Data"])
-        st.subheader("📊 BẢNG TỔNG HỢP")
-        st.dataframe(table, use_container_width=True)
-
-        pro = [r for r in results if r["Level"] == "🔥 PRO TRADER+"]
-
-        if pro:
-            st.subheader("🔥 PRO TRADER+ – SETUP CHUẨN")
-            for r in pro:
-                st.markdown(f"## {r['Symbol']}")
-                st.write(f"**Entry:** {r['Entry']} | **SL:** {r['SL']} | **TP1:** {r['TP1']} | **TP2:** {r['TP2']}")
-                st.write(f"**RR:** {r['RR']} | **Winrate:** {r['Winrate']}")
-                st.write("🧠", r["Notes"])
-                st.plotly_chart(
-                    plot_chart(r["Data"], r["Symbol"], r["Entry"], r["SL"], r["TP1"], r["TP2"]),
-                    use_container_width=True
-                )
-        else:
-            st.info("Chưa có setup PRO TRADER+ hôm nay")
-
-else:
-    st.info("Nhập mã → bấm AUTO SCAN PRO+")
-
-st.caption(f"Updated {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        st.warning("Không tìm được mã phù hợp hiện tại")
