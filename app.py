@@ -1,164 +1,195 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import yfinance as yf
+import plotly.graph_objects as go
+from datetime import datetime
 
 # ======================
 # CONFIG
 # ======================
-st.set_page_config(page_title="Level X – Pro Trader Scanner", layout="wide")
-
-# ======================
-# INIT SESSION STATE
-# ======================
-if "results" not in st.session_state:
-    st.session_state.results = []
-
-# ======================
-# DATA FUNCTIONS
-# ======================
-def load_data(symbol, period="6mo"):
-    df = yf.download(symbol, period=period, progress=False)
-    if df.empty:
-        return None
-
-    df = df.reset_index()
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["MA50"] = df["Close"].rolling(50).mean()
-
-    delta = df["Close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss
-    df["RSI"] = 100 - (100 / (1 + rs))
-
-    df["Vol_MA20"] = df["Volume"].rolling(20).mean()
-
-    return df.dropna()
-
-# ======================
-# SCORING LOGIC
-# ======================
-def analyze_stock(symbol):
-    df = load_data(symbol)
-    if df is None or len(df) < 60:
-        return None
-
-    last = df.iloc[-1]
-
-    score = 0
-    reasons = []
-
-    # MA20 > MA50
-    if last["MA20"] > last["MA50"]:
-        score += 30
-        reasons.append("MA20 nằm trên MA50")
-
-    # Giá gần MA20
-    dist_ma20 = (last["Close"] - last["MA20"]) / last["MA20"] * 100
-    if abs(dist_ma20) < 3:
-        score += 20
-        reasons.append("Giá sát MA20")
-
-    # RSI khỏe
-    if 50 < last["RSI"] < 70:
-        score += 20
-        reasons.append("RSI khỏe")
-
-    # Volume xác nhận
-    if last["Volume"] > last["Vol_MA20"]:
-        score += 20
-        reasons.append("Volume vượt MA20")
-
-    # Không quá nóng
-    if dist_ma20 < 8:
-        score += 10
-
-    # Nhận định
-    if score >= 70:
-        view = "🟢 NÊN THEO DÕI MUA"
-    elif score >= 50:
-        view = "🟡 QUAN SÁT"
-    else:
-        view = "🔴 LOẠI"
-
-    return {
-        "Mã": symbol,
-        "Giá": round(last["Close"], 2),
-        "RSI": round(last["RSI"], 1),
-        "Cách MA20 (%)": round(dist_ma20, 2),
-        "Volume > MA20": "✅" if last["Volume"] > last["Vol_MA20"] else "❌",
-        "Score": score,
-        "Nhận định": view,
-        "Lý do": ", ".join(reasons),
-        "DF": df
-    }
-
-# ======================
-# UI
-# ======================
-st.title("🚀 Level X – Pro Trader Scanner")
-
-symbols = st.multiselect(
-    "Chọn danh sách mã (demo – có thể thay bằng full HOSE/HNX)",
-    ["VNM.VN", "HPG.VN", "FPT.VN", "MWG.VN", "SSI.VN", "PNJ.VN"],
-    default=["VNM.VN", "HPG.VN", "FPT.VN"]
+st.set_page_config(
+    page_title="VN Stock Pro Scanner",
+    layout="wide"
 )
 
-if st.button("🚀 AUTO SCAN PRO"):
-    results = []
-    with st.spinner("Đang quét..."):
-        for s in symbols:
-            r = analyze_stock(s)
-            if r:
-                results.append(r)
-
-    st.session_state.results = results
+st.title("📈 VN STOCK PRO SCANNER")
+st.caption("Level: Trader → Pro Trader | One-file | No bullshit")
 
 # ======================
-# RESULT TABLE
+# UTIL FUNCTIONS
 # ======================
-results = st.session_state.results
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
-if results:
-    st.subheader("📊 Kết quả Auto Scan")
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
 
-    df_table = pd.DataFrame([
-        {k: v for k, v in r.items() if k not in ["DF", "Lý do"]}
-        for r in results
-    ]).sort_values("Score", ascending=False)
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-    st.dataframe(df_table, use_container_width=True)
 
-    # ======================
-    # DETAIL VIEW
-    # ======================
-    st.subheader("📈 Phân tích chi tiết Trader-ready")
+def analyze_stock(symbol):
+    try:
+        df = yf.download(symbol, period="6mo", interval="1d", progress=False)
 
-    pick = st.selectbox(
-        "Chọn mã",
-        [r["Mã"] for r in results]
+        if df.empty or len(df) < 50:
+            return None
+
+        df["MA20"] = df["Close"].rolling(20).mean()
+        df["MA50"] = df["Close"].rolling(50).mean()
+        df["Vol_MA20"] = df["Volume"].rolling(20).mean()
+        df["RSI"] = calculate_rsi(df["Close"])
+
+        last = df.iloc[-1]
+
+        close = float(last["Close"])
+        ma20 = float(last["MA20"])
+        ma50 = float(last["MA50"])
+        rsi = float(last["RSI"])
+        volume = float(last["Volume"])
+        vol_ma20 = float(last["Vol_MA20"])
+
+        score = 0
+        reasons = []
+
+        # === TREND ===
+        if ma20 > ma50:
+            score += 2
+            reasons.append("MA20 > MA50 (Uptrend)")
+
+        # === PRICE POSITION ===
+        dist_ma20 = (close - ma20) / ma20 * 100
+        if -2 <= dist_ma20 <= 4:
+            score += 2
+            reasons.append("Giá ở vùng đẹp quanh MA20")
+
+        # === VOLUME ===
+        if volume > vol_ma20:
+            score += 1
+            reasons.append("Volume > MA20 Volume")
+
+        # === RSI ===
+        if 50 <= rsi <= 65:
+            score += 2
+            reasons.append("RSI khỏe (50–65)")
+        elif rsi < 40:
+            reasons.append("RSI yếu")
+
+        # === CLASSIFY ===
+        if score >= 6:
+            level = "🔥 STRONG BUY"
+            action = "Có thể giải ngân 30–50%, ưu tiên breakout"
+        elif score >= 4:
+            level = "🟢 WATCHLIST"
+            action = "Theo dõi, chờ xác nhận volume"
+        else:
+            level = "⚠️ NO TRADE"
+            action = "Không nên vào lệnh"
+
+        return {
+            "Symbol": symbol,
+            "Close": round(close, 2),
+            "RSI": round(rsi, 1),
+            "Score": score,
+            "Level": level,
+            "Recommendation": action,
+            "Reason": ", ".join(reasons),
+            "Data": df
+        }
+
+    except Exception as e:
+        return None
+
+
+def plot_chart(df, symbol):
+    fig = go.Figure()
+
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        name="Price"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["MA20"],
+        name="MA20"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["MA50"],
+        name="MA50"
+    ))
+
+    fig.update_layout(
+        title=f"{symbol} Price Chart",
+        height=500,
+        xaxis_rangeslider_visible=False
     )
 
-    r = next(x for x in results if x["Mã"] == pick)
-    df = r["DF"]
+    return fig
 
-    st.line_chart(df.set_index("Date")[["Close", "MA20", "MA50"]])
 
-    last = df.iloc[-1]
-    entry = last["Close"]
-    stop = last["MA20"] * 0.97
-    target = entry + 2 * (entry - stop)
+# ======================
+# UI INPUT
+# ======================
+st.sidebar.header("⚙️ Scanner Settings")
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("🎯 Entry", round(entry, 2))
-    c2.metric("🛑 Stoploss", round(stop, 2))
-    c3.metric("🚀 Target", round(target, 2))
+symbols_input = st.sidebar.text_area(
+    "Danh sách mã (phân cách bằng dấu phẩy)",
+    value="VCB.VN, VNM.VN, FPT.VN, HPG.VN"
+)
 
-    st.success(f"📌 Khuyến nghị: {r['Nhận định']}")
-    st.info(f"📎 Cơ sở: {r['Lý do']}")
+run_scan = st.sidebar.button("🚀 SCAN NOW")
+
+symbols = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
+
+# ======================
+# MAIN LOGIC
+# ======================
+if run_scan:
+    results = []
+
+    with st.spinner("Đang quét thị trường..."):
+        for sym in symbols:
+            res = analyze_stock(sym)
+            if res:
+                results.append(res)
+
+    if not results:
+        st.error("Không có mã hợp lệ")
+    else:
+        df_result = pd.DataFrame(results).drop(columns=["Data"])
+
+        st.subheader("📊 KẾT QUẢ SCAN")
+        st.dataframe(df_result, use_container_width=True)
+
+        # ===== STRONG BUY =====
+        strong = [r for r in results if r["Level"] == "🔥 STRONG BUY"]
+
+        if strong:
+            st.subheader("🔥 STRONG BUY – Ưu tiên hành động")
+            for r in strong:
+                st.markdown(f"### {r['Symbol']}")
+                st.write(r["Recommendation"])
+                st.write("👉", r["Reason"])
+                st.plotly_chart(plot_chart(r["Data"], r["Symbol"]), use_container_width=True)
+
+        else:
+            st.info("Không có mã STRONG BUY hiện tại")
 
 else:
-    st.info("👉 Chọn mã và bấm **AUTO SCAN PRO** để bắt đầu.")
+    st.info("Nhập danh sách mã và bấm **SCAN NOW**")
+
+# ======================
+# FOOTER
+# ======================
+st.caption(f"Updated: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
