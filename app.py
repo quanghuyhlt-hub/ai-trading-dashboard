@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import plotly.graph_objects as go
 
 # ================= CONFIG =================
-st.set_page_config(page_title="Full Market Scanner", layout="wide")
-st.title("📡 FULL MARKET SCAN – HOSE + HNX")
+st.set_page_config(page_title="Pro Trader Scanner", layout="wide")
+st.title("📡 PRO TRADER – FULL MARKET SCAN + CHART")
 
 # ================= LOAD STOCK LIST =================
 @st.cache_data
@@ -38,7 +39,6 @@ def add_indicators(df):
     loss = -delta.where(delta < 0, 0).rolling(14).mean()
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
-
     return df
 
 # ================= STRATEGY =================
@@ -46,12 +46,12 @@ def evaluate_stock(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
-    # Điều kiện lọc
+    # Điều kiện lõi
     if last["Close"] <= last["MA50"]:
         return None
 
     if not (prev["MA20"] < prev["MA50"] and last["MA20"] > last["MA50"]):
-        return None  # MA20 vừa cắt MA50
+        return None
 
     risk = last["Close"] - last["MA50"]
     tp = last["Close"] + risk * 2
@@ -60,31 +60,31 @@ def evaluate_stock(df):
     if rr < 1.8:
         return None
 
-    # Phân tầng vốn
     if rr >= 2.5 and 55 <= last["RSI"] <= 70:
         tier = "ALL-IN KỸ THUẬT"
-        capital = "80–100%"
     elif rr >= 2.0:
         tier = "CHỦ LỰC"
-        capital = "50%"
     else:
         tier = "THĂM DÒ"
-        capital = "20%"
 
     return {
+        "Mã": "",
         "Entry": round(last["Close"],2),
         "Stop Loss": round(last["MA50"],2),
+        "Take Profit": round(tp,2),
         "RR": round(rr,2),
         "RSI": round(last["RSI"],1),
-        "Phân bổ vốn": capital,
         "Khuyến nghị": tier
     }
 
 # ================= UI =================
-st.subheader("🚀 Quét toàn thị trường")
+stock_list = load_stock_list()
 
-if st.button("📊 QUÉT TOÀN BỘ MÃ"):
-    stock_list = load_stock_list()
+if "scan_result" not in st.session_state:
+    st.session_state.scan_result = pd.DataFrame()
+
+# ---------- SCAN ----------
+if st.button("📊 QUÉT TOÀN BỘ THỊ TRƯỜNG"):
     results = []
 
     with st.spinner(f"Đang quét {len(stock_list)} mã..."):
@@ -101,8 +101,61 @@ if st.button("📊 QUÉT TOÀN BỘ MÃ"):
                 results.append(res)
 
     if results:
-        df_result = pd.DataFrame(results)
-        st.success(f"✅ Tìm được {len(df_result)} mã đạt chuẩn Trader")
-        st.dataframe(df_result, use_container_width=True)
+        st.session_state.scan_result = pd.DataFrame(results)
+        st.success(f"✅ Tìm được {len(results)} mã đạt chuẩn Trader")
     else:
         st.warning("Không có mã nào đạt tiêu chí hiện tại.")
+
+# ---------- TABLE ----------
+if not st.session_state.scan_result.empty:
+    st.subheader("📋 DANH SÁCH MÃ ĐẠT CHUẨN")
+    st.dataframe(st.session_state.scan_result, use_container_width=True)
+
+    # ---------- SELECT STOCK ----------
+    selected = st.selectbox(
+        "👉 Chọn mã để xem chi tiết chart & vùng vào lệnh",
+        st.session_state.scan_result["Mã"]
+    )
+
+    df_chart = add_indicators(load_data(selected))
+    last = df_chart.iloc[-1]
+
+    # ---------- CHART ----------
+    fig = go.Figure()
+
+    fig.add_candlestick(
+        x=df_chart.index,
+        open=df_chart["Open"],
+        high=df_chart["High"],
+        low=df_chart["Low"],
+        close=df_chart["Close"],
+        name="Price"
+    )
+
+    fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart["MA20"], name="MA20"))
+    fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart["MA50"], name="MA50"))
+
+    # Entry / SL / TP
+    entry = last["Close"]
+    sl = last["MA50"]
+    tp = entry + (entry - sl) * 2
+
+    fig.add_hline(y=entry, line_dash="dash", annotation_text="ENTRY")
+    fig.add_hline(y=sl, line_dash="dot", annotation_text="STOP LOSS")
+    fig.add_hline(y=tp, line_dash="dash", annotation_text="TAKE PROFIT")
+
+    fig.update_layout(height=650)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ---------- RECOMMEND ----------
+    st.subheader("🧠 KHUYẾN NGHỊ GIAO DỊCH")
+    st.write(f"**Mã:** {selected}")
+    st.write(f"**Entry:** {round(entry,2)}")
+    st.write(f"**Stop Loss:** {round(sl,2)}")
+    st.write(f"**Take Profit:** {round(tp,2)}")
+    st.write(f"**RSI:** {round(last['RSI'],1)}")
+
+    if last["RSI"] < 70:
+        st.success("📈 Xu hướng khỏe – có thể vào theo kế hoạch")
+    else:
+        st.warning("⚠️ RSI cao – hạn chế FOMO, chờ retest")
