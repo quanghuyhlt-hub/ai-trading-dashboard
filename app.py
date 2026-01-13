@@ -4,8 +4,8 @@ import numpy as np
 import yfinance as yf
 
 # ================= CONFIG =================
-st.set_page_config(page_title="Pro Trader – Early Entry", layout="wide")
-st.title("📈 PRO TRADER – BẮT ĐIỂM VÀO SỚM")
+st.set_page_config(page_title="Pro Trader – Trade Decision", layout="wide")
+st.title("🔥 PRO TRADER – BẢNG QUYẾT ĐỊNH VÀO LỆNH")
 
 # ================= STOCK LIST (DEMO) =================
 VN_STOCKS = [
@@ -44,66 +44,56 @@ def add_indicators(df):
 
     return df
 
-# ================= EARLY ENTRY CHECK =================
-def early_entry_check(df):
+# ================= TRADE DECISION =================
+def trade_decision(df):
     last = df.iloc[-1]
 
-    # MA20 cắt MA50 trong 5 phiên gần nhất?
-    recent = df.tail(6)
-    cross = (
-        recent["MA20"].iloc[-2] < recent["MA50"].iloc[-2] and
-        recent["MA20"].iloc[-1] > recent["MA50"].iloc[-1]
-    )
+    entry = last["Close"]
+    sl = last["MA50"]
 
-    # Giá cách MA20 bao nhiêu %
-    dist_ma20 = (last["Close"] - last["MA20"]) / last["MA20"] * 100
+    if entry <= sl:
+        return None
 
-    # Điều kiện
-    conditions = {
-        "cross": cross,
-        "near_ma20": dist_ma20 <= 8,
-        "trend_ok": last["Close"] > last["MA50"],
-        "rsi_ok": 50 <= last["RSI"] <= 65
-    }
+    risk = entry - sl
+    tp = entry + risk * 2
+    rr = (tp - entry) / risk
 
-    score = sum(conditions.values())
-
-    if score == 4:
-        rec = "🚀 MUA SỚM – ĐẦU SÓNG"
-    elif score == 3:
-        rec = "👀 THEO DÕI – CHỜ XÁC NHẬN"
+    if rr >= 1.5:
+        verdict = "✅ KÈO ĐẸP – VÀO ĐƯỢC"
     else:
-        rec = "❌ LOẠI – CHƯA ĐẸP"
+        verdict = "❌ RR XẤU – BỎ"
 
     return {
-        "MA20 cắt MA50": "✔️" if cross else "❌",
-        "Giá cách MA20 (%)": round(dist_ma20,2),
-        "RSI": round(last["RSI"],2),
-        "Khuyến nghị": rec
+        "Entry": round(entry,2),
+        "Stop Loss": round(sl,2),
+        "Take Profit": round(tp,2),
+        "RR": round(rr,2),
+        "Kết luận": verdict
     }
 
 # ================= UI =================
-st.subheader("🔍 AUTO SCAN – BẮT ĐIỂM VÀO SỚM")
+st.subheader("📊 AUTO SCAN – QUYẾT ĐỊNH TRADER")
 
-if st.button("🚀 QUÉT THỊ TRƯỜNG"):
-    results = []
+if st.button("🚀 QUÉT & LẬP KÈO"):
+    rows = []
 
-    with st.spinner("Đang quét..."):
+    with st.spinner("Đang tính toán kèo..."):
         for sym in VN_STOCKS:
             df = load_data(sym)
             if df.empty or len(df) < 60:
                 continue
 
             df = add_indicators(df)
-            res = early_entry_check(df)
+            res = trade_decision(df)
 
-            results.append({
-                "Mã": sym,
-                **res
-            })
+            if res:
+                rows.append({
+                    "Mã": sym,
+                    **res
+                })
 
-    if results:
-        df_result = pd.DataFrame(results)
-        st.dataframe(df_result, use_container_width=True)
+    if rows:
+        df_out = pd.DataFrame(rows)
+        st.dataframe(df_out, use_container_width=True)
     else:
-        st.warning("Không có mã phù hợp thời điểm hiện tại.")
+        st.warning("Không có kèo đạt RR tối thiểu.")
