@@ -1,125 +1,129 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import numpy as np
+from vnstock import stock_historical_data
 
-st.set_page_config(page_title="Pro Trader – Break Scanner", layout="wide")
-st.title("🚀 PRO TRADER – LEVEL 2: BREAK NỀN / SIÊU CỔ")
+# =========================
+# CONFIG
+# =========================
+st.set_page_config(
+    page_title="Level X – Pro Trader Scanner",
+    layout="wide"
+)
 
-# ================= LOAD SYMBOLS =================
+st.title("🚀 Level X – Pro Trader Scanner")
+st.caption("Dữ liệu Việt Nam | Scan vào sóng | Không dùng Yahoo")
+
+# =========================
+# LOAD SYMBOL LIST
+# =========================
 @st.cache_data
 def load_symbols():
-    df = pd.read_csv("stocks.csv")  # chỉ cần cột symbol
+    df = pd.read_csv("stocks.csv")
     return df["symbol"].dropna().unique().tolist()
 
-# ================= LOAD PRICE =================
-@st.cache_data
+symbols = load_symbols()
+
+# =========================
+# LOAD PRICE DATA
+# =========================
 def load_price(symbol):
-    df = yf.download(symbol + ".VN", period="9mo", interval="1d", progress=False)
-    if df.empty or len(df) < 80:
-        return None
+    df = stock_historical_data(
+        symbol=symbol,
+        start_date="2023-01-01",
+        end_date=pd.Timestamp.today().strftime("%Y-%m-%d"),
+        resolution="1D"
+    )
+    df = df.rename(columns={
+        "close": "Close",
+        "volume": "Volume"
+    })
+    return df
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-    df.dropna(inplace=True)
-
+# =========================
+# INDICATORS
+# =========================
+def add_indicators(df):
     df["MA20"] = df["Close"].rolling(20).mean()
     df["MA50"] = df["Close"].rolling(50).mean()
-    df["VOL_MA20"] = df["Volume"].rolling(20).mean()
 
     delta = df["Close"].diff()
-    gain = delta.where(delta > 0, 0).rolling(14).mean()
-    loss = -delta.where(delta < 0, 0).rolling(14).mean()
-    rs = gain / loss
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["RSI"] = 100 - (100 / (1 + rs))
 
     return df
 
-# ================= FIND MA CROSS =================
-def find_ma_cross_price(df):
-    for i in range(len(df) - 1, 20, -1):
-        if (
-            df["MA20"].iloc[i] > df["MA50"].iloc[i]
-            and df["MA20"].iloc[i - 1] <= df["MA50"].iloc[i - 1]
-        ):
-            return df["Close"].iloc[i]
-    return None
+# =========================
+# ANALYSIS LOGIC
+# =========================
+def analyze_stock(symbol):
+    try:
+        df = load_price(symbol)
+        if len(df) < 60:
+            return None
 
-# ================= ANALYZE BREAK =================
-def analyze_break(df):
-    last = df.iloc[-1]
-    cross_price = find_ma_cross_price(df)
+        df = add_indicators(df)
+        last = df.iloc[-1]
 
-    if cross_price is None:
+        score = 0
+        notes = []
+
+        if last["MA20"] > last["MA50"]:
+            score += 30
+            notes.append("MA20 > MA50 (xu hướng tăng)")
+        else:
+            notes.append("MA20 < MA50")
+
+        if 50 <= last["RSI"] <= 70:
+            score += 25
+            notes.append("RSI khỏe")
+
+        if last["Close"] > last["MA20"]:
+            score += 25
+            notes.append("Giá trên MA20")
+
+        vol_ratio = df["Volume"].iloc[-1] / df["Volume"].rolling(20).mean().iloc[-1]
+        if vol_ratio > 1.2:
+            score += 20
+            notes.append("Volume xác nhận")
+
+        if score >= 80:
+            verdict = "🔥 MUA THỬ – VÀO SÓNG"
+        elif score >= 60:
+            verdict = "👀 THEO DÕI"
+        else:
+            verdict = "❌ CHƯA ĐẸP"
+
+        return {
+            "Mã": symbol,
+            "Giá": round(last["Close"], 2),
+            "RSI": round(last["RSI"], 1),
+            "MA20": round(last["MA20"], 2),
+            "MA50": round(last["MA50"], 2),
+            "Score": score,
+            "Khuyến nghị": verdict,
+            "Ghi chú": "; ".join(notes)
+        }
+
+    except Exception:
         return None
 
-    increase_pct = (last["Close"] - cross_price) / cross_price * 100
-    dist_ma20 = (last["Close"] - last["MA20"]) / last["MA20"] * 100
+# =========================
+# UI
+# =========================
+if st.button("🚀 AUTO SCAN PRO"):
+    results = []
+    with st.spinner("Đang quét dữ liệu Việt Nam…"):
+        for s in symbols:
+            r = analyze_stock(s)
+            if r:
+                results.append(r)
 
-    conditions = []
-    score = 0
-
-    if last["Close"] > last["MA20"]:
-        score += 1
-        conditions.append("Giá trên MA20")
-
-    if last["MA20"] > last["MA50"]:
-        score += 1
-        conditions.append("Trend tăng")
-
-    if increase_pct < 10:
-        score += 2
-        conditions.append("Chưa tăng nóng")
-
-    if abs(dist_ma20) < 5:
-        score += 1
-        conditions.append("Đang nén giá")
-
-    if last["Volume"] > last["VOL_MA20"]:
-        score += 1
-        conditions.append("Volume vào")
-
-    if 50 <= last["RSI"] <= 68:
-        score += 1
-        conditions.append("RSI khỏe")
-
-    if score >= 7:
-        reco = "MUA SỚM – BREAK NỀN"
-    elif score >= 5:
-        reco = "THEO DÕI – CHỜ BREAK"
+    if results:
+        df = pd.DataFrame(results).sort_values("Score", ascending=False)
+        st.success(f"Quét xong {len(df)} mã")
+        st.dataframe(df, use_container_width=True)
     else:
-        reco = "LOẠI"
-
-    return {
-        "Giá": round(last["Close"], 2),
-        "RSI": round(last["RSI"], 1),
-        "% tăng từ MA cắt": round(increase_pct, 1),
-        "Điểm": score,
-        "Khuyến nghị": reco,
-        "Lý do": "; ".join(conditions)
-    }
-
-# ================= MAIN =================
-symbols = load_symbols()
-results = []
-
-st.info(f"🔍 Đang quét {len(symbols)} mã cổ phiếu (Level 2)...")
-
-for sym in symbols:
-    df = load_price(sym)
-    if df is None:
-        continue
-
-    data = analyze_break(df)
-    if data and data["Khuyến nghị"] != "LOẠI":
-        data["Mã"] = sym
-        results.append(data)
-
-# ================= OUTPUT =================
-if results:
-    df_out = pd.DataFrame(results).sort_values("Điểm", ascending=False)
-    st.dataframe(df_out, use_container_width=True)
-else:
-    st.warning("Không có mã nào đạt chuẩn BREAK NỀN hôm nay.")
+        st.warning("Không có mã phù hợp")
