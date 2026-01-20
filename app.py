@@ -1,94 +1,96 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 import numpy as np
-import time
 
-# ======================
-# CONFIG
-# ======================
-st.set_page_config(
-    page_title="Stock Scanner",
-    layout="wide"
-)
+st.set_page_config(page_title="Pro Trader Scanner", layout="wide")
+st.title("🔥 Pro Trader Scanner – MA20 x MA50 + Volume + RSI")
 
-st.title("📊 Simple Stock Scanner (CSV Only)")
-st.caption("No API • No Yahoo • No vnstock • CSV-driven")
-
-# ======================
+# =========================
 # LOAD SYMBOL LIST
-# ======================
-@st.cache_data
+# =========================
+@st.cache_data(ttl=3600)
 def load_symbols():
     df = pd.read_csv("stocks.csv")
-    df = df.dropna()
-    df["symbol"] = df["symbol"].astype(str).str.upper()
+    return df["symbol"].dropna().unique().tolist()
+
+# =========================
+# FETCH PRICE DATA
+# =========================
+@st.cache_data(ttl=3600)
+def fetch_price(symbol):
+    df = yf.download(symbol, period="1y", interval="1d", progress=False)
+    if df.empty or len(df) < 220:
+        return None
     return df
 
-symbols_df = load_symbols()
-symbols = symbols_df["symbol"].tolist()
+# =========================
+# TECH INDICATORS
+# =========================
+def compute_indicators(df):
+    df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA50"] = df["Close"].rolling(50).mean()
+    df["MA200"] = df["Close"].rolling(200).mean()
+    df["VOL_MA20"] = df["Volume"].rolling(20).mean()
 
-st.success(f"Loaded {len(symbols)} symbols")
+    delta = df["Close"].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(14).mean()
+    avg_loss = pd.Series(loss).rolling(14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
 
-# ======================
-# SCAN LOGIC (MOCK – FAST – STABLE)
-# ======================
-def scan_symbols(symbols):
-    results = []
+    return df
 
+# =========================
+# CHECK CONDITIONS
+# =========================
+def check_conditions(df):
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+
+    ma_cross = prev["MA20"] <= prev["MA50"] and curr["MA20"] > curr["MA50"]
+    price_above_ma200 = curr["Close"] > curr["MA200"]
+    rsi_ok = curr["RSI"] > 50
+    volume_breakout = curr["Volume"] > 1.5 * curr["VOL_MA20"]
+
+    return ma_cross and price_above_ma200 and rsi_ok and volume_breakout
+
+# =========================
+# MAIN SCAN
+# =========================
+symbols = load_symbols()
+results = []
+
+with st.spinner("🚀 Scanning market..."):
     for sym in symbols:
-        # giả lập dữ liệu scan (thay bằng logic thật sau)
-        price = round(np.random.uniform(10, 120), 2)
-        volume = np.random.randint(100_000, 5_000_000)
-        score = round(np.random.uniform(0, 100), 1)
+        data = fetch_price(sym)
+        if data is None:
+            continue
 
-        # điều kiện scan (đúng yêu cầu: CÓ ĐIỀU KIỆN)
-        breakout = price > 50 and volume > 1_000_000
-        strong = score >= 70
+        data = compute_indicators(data)
 
-        if breakout and strong:
+        if check_conditions(data):
+            last = data.iloc[-1]
             results.append({
                 "Symbol": sym,
-                "Price": price,
-                "Volume": volume,
-                "Score": score,
-                "Signal": "🔥 STRONG"
+                "Close": round(last["Close"], 2),
+                "MA20": round(last["MA20"], 2),
+                "MA50": round(last["MA50"], 2),
+                "MA200": round(last["MA200"], 2),
+                "RSI": round(last["RSI"], 1),
+                "Volume": int(last["Volume"]),
+                "Vol x MA20": round(last["Volume"] / last["VOL_MA20"], 2)
             })
 
-    return pd.DataFrame(results)
+# =========================
+# DISPLAY
+# =========================
+st.subheader("✅ Cổ phiếu đạt điều kiện Pro Trader")
 
-# ======================
-# UI CONTROL
-# ======================
-col1, col2 = st.columns([1, 3])
-
-with col1:
-    run_scan = st.button("🚀 Run Scan")
-
-with col2:
-    st.info("Scan chạy local trên CSV – cực nhanh, không phụ thuộc bên ngoài")
-
-# ======================
-# RUN SCAN
-# ======================
-if run_scan:
-    start = time.time()
-    with st.spinner("Scanning..."):
-        result_df = scan_symbols(symbols)
-    end = time.time()
-
-    st.success(f"Done in {round(end - start, 2)}s")
-
-    if result_df.empty:
-        st.warning("No stocks matched conditions")
-    else:
-        st.subheader("📌 Scan Results")
-        st.dataframe(
-            result_df.sort_values("Score", ascending=False),
-            use_container_width=True
-        )
-
-# ======================
-# RAW DATA VIEW
-# ======================
-with st.expander("📄 View raw symbol list"):
-    st.dataframe(symbols_df, use_container_width=True)
+if results:
+    df_result = pd.DataFrame(results).sort_values("Vol x MA20", ascending=False)
+    st.dataframe(df_result, use_container_width=True)
+else:
+    st.warning("Không có mã nào đạt điều kiện hôm nay.")
