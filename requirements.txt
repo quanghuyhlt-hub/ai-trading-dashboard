@@ -4,3 +4,6 @@ numpy
 matplotlib
 plotly
 vnstock==0.2.8
+beautifulsoup4
+lxml
+requests
