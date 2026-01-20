@@ -50,14 +50,14 @@ def compute_indicators(df):
     minus_dm = low.diff() * -1
 
     plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)tr14 = tr.rolling(14).sum()
 
-    tr14 = tr.rolling(14).sum()
-    plus_di = 100 * plus_dm.rolling(14).sum() / tr14
-    minus_di = 100 * minus_dm.rolling(14).sum() / tr14
+plus_di = 100 * plus_dm.rolling(14).sum() / tr14
+minus_di = 100 * minus_dm.rolling(14).sum() / tr14
 
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    df["ADX"] = dx.rolling(14).mean()
+dx = (plus_di - minus_di).abs() / (plus_di + minus_di) * 100
+df["ADX"] = dx.rolling(14).mean()
+ 
 
     # ===== Volume =====
     df["VOL_MA20"] = df["Volume"].rolling(20).mean()
