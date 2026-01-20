@@ -1,113 +1,124 @@
-import streamlit as st
+from vnstock import stock_historical_data
 import pandas as pd
-import yfinance as yf
+import pandas_ta as ta
+from tqdm import tqdm
+import time
 
-st.set_page_config(page_title="Pro Trader Scanner", layout="wide")
-st.title("🔥 Pro Trader Scanner – MA20 x MA50 + Volume + RSI")
+# =============================
+# CONFIG
+# =============================
+START_DATE = "2023-01-01"
+END_DATE   = "2025-01-20"
+VOLUME_MULTIPLIER = 1.5
+SLEEP_TIME = 0.3   # tránh bị block
 
-# =========================
-# LOAD SYMBOL LIST
-# =========================
-@st.cache_data(ttl=3600)
-def load_symbols():
-    df = pd.read_csv("stocks.csv")
-    return df["symbol"].dropna().unique().tolist()
+# =============================
+# UNIVERSE (có thể đổi)
+# =============================
+STOCK_LIST = [
+    "VCB","BID","CTG","ACB","TCB","MBB",
+    "HPG","VNM","VIC","VHM","MSN",
+    "SSI","VND","HCM",
+    "GAS","PLX","POW",
+    "FPT","MWG","PNJ"
+]
 
-# =========================
-# FETCH DATA
-# =========================
-@st.cache_data(ttl=3600)
-def fetch_price(symbol):
-    df = yf.download(symbol, period="1y", interval="1d", progress=False)
-    if df.empty or len(df) < 220:
-        return None
+# =============================
+# HELPER FUNCTIONS
+# =============================
+def fetch_and_clean(symbol):
+    try:
+        df = stock_historical_data(
+            symbol=symbol,
+            start_date=START_DATE,
+            end_date=END_DATE,
+            resolution="1D"
+        )
+    except:
+        return None, "API_ERROR"
+
+    if df is None or len(df) < 200:
+        return None, "NOT_ENOUGH_DATA"
+
+    df = df.rename(columns={
+        "TradingDate": "date",
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume"
+    })
+
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
+
+    if df["close"].isna().any():
+        return None, "NULL_CLOSE"
+
+    if (df["volume"] <= 0).any():
+        return None, "BAD_VOLUME"
+
+    return df, "OK"
+
+
+def apply_indicators(df):
+    df["MA20"] = ta.sma(df["close"], length=20)
+    df["MA50"] = ta.sma(df["close"], length=50)
+    df["MA200"] = ta.sma(df["close"], length=200)
+    df["RSI"] = ta.rsi(df["close"], length=14)
+    df["VOL_MA20"] = ta.sma(df["volume"], length=20)
     return df
 
-# =========================
-# INDICATORS
-# =========================
-def compute_indicators(df):
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["MA50"] = df["Close"].rolling(50).mean()
-    df["MA200"] = df["Close"].rolling(200).mean()
-    df["VOL_MA20"] = df["Volume"].rolling(20).mean()
 
-    # ✅ RSI FIX – CHUẨN
-    delta = df["Close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-
-    rs = avg_gain / avg_loss
-    df["RSI"] = 100 - (100 / (1 + rs))
-
-    return df
-
-# =========================
-# CONDITIONS
-# =========================
 def check_conditions(df):
-    if len(df) < 210:
-        return False
-
+    last = df.iloc[-1]
     prev = df.iloc[-2]
-    curr = df.iloc[-1]
 
-    # ❗ bỏ mã có indicator chưa đủ
-    cols = ["MA20", "MA50", "MA200", "RSI", "VOL_MA20"]
-    if prev[cols].isna().any() or curr[cols].isna().any():
-        return False
-
-    # ÉP scalar
-    ma20_prev = float(prev["MA20"])
-    ma50_prev = float(prev["MA50"])
-    ma20_curr = float(curr["MA20"])
-    ma50_curr = float(curr["MA50"])
-
-    ma_cross = ma20_prev <= ma50_prev and ma20_curr > ma50_curr
-    price_above_ma200 = float(curr["Close"]) > float(curr["MA200"])
-    rsi_ok = float(curr["RSI"]) > 50
-    volume_breakout = float(curr["Volume"]) > 1.5 * float(curr["VOL_MA20"])
+    ma_cross = prev["MA20"] < prev["MA50"] and last["MA20"] > last["MA50"]
+    price_above_ma200 = last["close"] > last["MA200"]
+    rsi_ok = last["RSI"] > 50
+    volume_breakout = last["volume"] > VOLUME_MULTIPLIER * last["VOL_MA20"]
 
     return ma_cross and price_above_ma200 and rsi_ok and volume_breakout
-# =========================
-# MAIN SCAN
-# =========================
-symbols = load_symbols()
+
+
+# =============================
+# MAIN SCANNER
+# =============================
 results = []
 
-with st.spinner("🚀 Scanning market..."):
-    for sym in symbols:
-        df = fetch_price(sym)
-        if df is None:
-            continue
+for symbol in tqdm(STOCK_LIST):
+    df, status = fetch_and_clean(symbol)
 
-        df = compute_indicators(df)
+    if status != "OK":
+        continue
 
+    df = apply_indicators(df)
+
+    try:
         if check_conditions(df):
-            last = df.iloc[-1]
             results.append({
-                "Symbol": sym,
-                "Close": round(last["Close"], 2),
-                "MA20": round(last["MA20"], 2),
-                "MA50": round(last["MA50"], 2),
-                "MA200": round(last["MA200"], 2),
-                "RSI": round(last["RSI"], 1),
-                "Volume": int(last["Volume"]),
-                "Vol x MA20": round(last["Volume"] / last["VOL_MA20"], 2)
+                "symbol": symbol,
+                "close": round(df["close"].iloc[-1], 2),
+                "MA20": round(df["MA20"].iloc[-1], 2),
+                "MA50": round(df["MA50"].iloc[-1], 2),
+                "MA200": round(df["MA200"].iloc[-1], 2),
+                "RSI": round(df["RSI"].iloc[-1], 2),
+                "volume": int(df["volume"].iloc[-1])
             })
+    except:
+        pass
 
-# =========================
-# DISPLAY
-# =========================
-st.subheader("✅ Cổ phiếu đạt điều kiện")
+    time.sleep(SLEEP_TIME)
 
-if results:
-    st.dataframe(
-        pd.DataFrame(results).sort_values("Vol x MA20", ascending=False),
-        use_container_width=True
-    )
+# =============================
+# OUTPUT
+# =============================
+result_df = pd.DataFrame(results)
+
+if not result_df.empty:
+    result_df.to_csv("scanner_result.csv", index=False)
+    print("🔥 DONE – Có kèo rồi sếp")
+    print(result_df)
 else:
-    st.warning("Không có mã nào đạt điều kiện hôm nay.")
+    print("❌ Không có mã nào thỏa điều kiện")
