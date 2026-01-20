@@ -20,18 +20,22 @@ def load_symbols():
 def compute_indicators(df):
     df = df.copy()
 
+    # ===== Moving Averages =====
     df["MA20"] = df["Close"].rolling(20).mean()
     df["MA50"] = df["Close"].rolling(50).mean()
     df["MA200"] = df["Close"].rolling(200).mean()
 
+    # ===== RSI =====
     delta = df["Close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+
     avg_gain = gain.rolling(14).mean()
     avg_loss = loss.rolling(14).mean()
     rs = avg_gain / avg_loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
+    # ===== ADX (FIX CHUẨN) =====
     high = df["High"]
     low = df["Low"]
     close = df["Close"]
@@ -42,21 +46,23 @@ def compute_indicators(df):
         (low - close.shift()).abs()
     ], axis=1).max(axis=1)
 
-    plus_dm = np.where((high - high.shift()) > (low.shift() - low),
-                       np.maximum(high - high.shift(), 0), 0)
-    minus_dm = np.where((low.shift() - low) > (high - high.shift()),
-                        np.maximum(low.shift() - low, 0), 0)
+    plus_dm = high.diff()
+    minus_dm = low.diff() * -1
 
-    tr14 = pd.Series(tr).rolling(14).sum()
-    plus_di = 100 * pd.Series(plus_dm).rolling(14).sum() / tr14
-    minus_di = 100 * pd.Series(minus_dm).rolling(14).sum() / tr14
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    tr14 = tr.rolling(14).sum()
+    plus_di = 100 * plus_dm.rolling(14).sum() / tr14
+    minus_di = 100 * minus_dm.rolling(14).sum() / tr14
+
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
     df["ADX"] = dx.rolling(14).mean()
 
+    # ===== Volume =====
     df["VOL_MA20"] = df["Volume"].rolling(20).mean()
 
     return df
-
 # ======================
 # SCAN LOGIC
 # ======================
