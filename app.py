@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import numpy as np
 
 st.set_page_config(page_title="Pro Trader Scanner", layout="wide")
 st.title("🔥 Pro Trader Scanner – MA20 x MA50 + Volume + RSI")
@@ -15,7 +14,7 @@ def load_symbols():
     return df["symbol"].dropna().unique().tolist()
 
 # =========================
-# FETCH PRICE DATA
+# FETCH DATA
 # =========================
 @st.cache_data(ttl=3600)
 def fetch_price(symbol):
@@ -25,7 +24,7 @@ def fetch_price(symbol):
     return df
 
 # =========================
-# TECH INDICATORS
+# INDICATORS
 # =========================
 def compute_indicators(df):
     df["MA20"] = df["Close"].rolling(20).mean()
@@ -33,18 +32,21 @@ def compute_indicators(df):
     df["MA200"] = df["Close"].rolling(200).mean()
     df["VOL_MA20"] = df["Volume"].rolling(20).mean()
 
+    # ✅ RSI FIX – CHUẨN
     delta = df["Close"].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(14).mean()
-    avg_loss = pd.Series(loss).rolling(14).mean()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+
     rs = avg_gain / avg_loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
     return df
 
 # =========================
-# CHECK CONDITIONS
+# CONDITIONS
 # =========================
 def check_conditions(df):
     prev = df.iloc[-2]
@@ -65,14 +67,14 @@ results = []
 
 with st.spinner("🚀 Scanning market..."):
     for sym in symbols:
-        data = fetch_price(sym)
-        if data is None:
+        df = fetch_price(sym)
+        if df is None:
             continue
 
-        data = compute_indicators(data)
+        df = compute_indicators(df)
 
-        if check_conditions(data):
-            last = data.iloc[-1]
+        if check_conditions(df):
+            last = df.iloc[-1]
             results.append({
                 "Symbol": sym,
                 "Close": round(last["Close"], 2),
@@ -87,10 +89,12 @@ with st.spinner("🚀 Scanning market..."):
 # =========================
 # DISPLAY
 # =========================
-st.subheader("✅ Cổ phiếu đạt điều kiện Pro Trader")
+st.subheader("✅ Cổ phiếu đạt điều kiện")
 
 if results:
-    df_result = pd.DataFrame(results).sort_values("Vol x MA20", ascending=False)
-    st.dataframe(df_result, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame(results).sort_values("Vol x MA20", ascending=False),
+        use_container_width=True
+    )
 else:
     st.warning("Không có mã nào đạt điều kiện hôm nay.")
