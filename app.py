@@ -49,16 +49,29 @@ def compute_indicators(df):
 # CONDITIONS
 # =========================
 def check_conditions(df):
+    if len(df) < 210:
+        return False
+
     prev = df.iloc[-2]
     curr = df.iloc[-1]
 
-    ma_cross = prev["MA20"] <= prev["MA50"] and curr["MA20"] > curr["MA50"]
-    price_above_ma200 = curr["Close"] > curr["MA200"]
-    rsi_ok = curr["RSI"] > 50
-    volume_breakout = curr["Volume"] > 1.5 * curr["VOL_MA20"]
+    # ❗ bỏ mã có indicator chưa đủ
+    cols = ["MA20", "MA50", "MA200", "RSI", "VOL_MA20"]
+    if prev[cols].isna().any() or curr[cols].isna().any():
+        return False
+
+    # ÉP scalar
+    ma20_prev = float(prev["MA20"])
+    ma50_prev = float(prev["MA50"])
+    ma20_curr = float(curr["MA20"])
+    ma50_curr = float(curr["MA50"])
+
+    ma_cross = ma20_prev <= ma50_prev and ma20_curr > ma50_curr
+    price_above_ma200 = float(curr["Close"]) > float(curr["MA200"])
+    rsi_ok = float(curr["RSI"]) > 50
+    volume_breakout = float(curr["Volume"]) > 1.5 * float(curr["VOL_MA20"])
 
     return ma_cross and price_above_ma200 and rsi_ok and volume_breakout
-
 # =========================
 # MAIN SCAN
 # =========================
